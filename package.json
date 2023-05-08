@@ -1,0 +1,47 @@
+{
+  "name": "@bitcoinerlab/discovery",
+  "homepage": "https://github.com/bitcoinerlab/discovery",
+  "version": "0.0.1",
+  "description": "A TypeScript library for retrieving Bitcoin funds from ranged descriptors, leveraging @bitcoinerlab/explorer for standardized access to multiple blockchain explorers.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "docs": "jsdoc -c jsdoc.json",
+    "build:src": "npx tsc --project tsconfig.src.json",
+    "build:test": "npx tsc --project tsconfig.test.json",
+    "build": "npm run build:src && npm run build:test",
+    "lint": "eslint --ignore-path .gitignore --ext .ts src/ test/",
+    "tester": "docker ps | grep bitcoinerlab/tester > /dev/null || (docker pull bitcoinerlab/tester && docker run -d -p 8080:8080 -p 60401:60401 -p 3002:3002 bitcoinerlab/tester && sleep 5)",
+    "test": "npm run lint && npm run build && npm run tester && NODE_OPTIONS=\"--experimental-fetch\" jest",
+    "prepublishOnly": "npm test"
+  },
+  "jest": {
+    "testPathIgnorePatterns": ["dist/"],
+    "testMatch": ["**/*.test.js"]
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bitcoinerlab/discovery.git"
+  },
+  "keywords": ["bitcoin", "discovery", "esplora", "electrum"],
+  "author": "Jose-Luis Landabaso",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/bitcoinerlab/discovery/issues"
+  },
+  "files": ["dist"],
+  "devDependencies": {
+    "@types/jest": "^29.5.1",
+    "@typescript-eslint/eslint-plugin": "^5.59.0",
+    "@typescript-eslint/parser": "^5.59.0",
+    "eslint-config-prettier": "^8.8.0",
+    "eslint-plugin-jest": "^27.2.1",
+    "eslint-plugin-prettier": "^4.2.1",
+    "jest": "^29.5.0",
+    "prettier": "^2.8.7",
+    "regtest-client": "^0.2.0",
+    "typescript": "^5.0.4"
+  },
+  "dependencies": {
+  }
+}

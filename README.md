@@ -2,7 +2,7 @@
 
 **IMPORTANT: This library is under active development and not yet ready for production use.**
 
-A TypeScript library for retrieving Bitcoin funds associated with a range of descriptors. The library leverages @bitcoinerlab/explorer to provide standardized access to multiple Bitcoin blockchain explorers.
+A TypeScript library for retrieving Bitcoin funds associated with a range of descriptors. The library leverages [@bitcoinerlab/explorer](https://github.com/bitcoinerlab/explorer) to provide standardized access to multiple Bitcoin blockchain explorers.
 
 ## Features (Coming Soon)
 

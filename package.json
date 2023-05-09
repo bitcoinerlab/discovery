@@ -16,20 +16,34 @@
     "prepublishOnly": "npm test"
   },
   "jest": {
-    "testPathIgnorePatterns": ["dist/"],
-    "testMatch": ["**/*.test.js"]
+    "testPathIgnorePatterns": [
+      "dist/"
+    ],
+    "testMatch": [
+      "**/*.test.js"
+    ]
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/bitcoinerlab/discovery.git"
   },
-  "keywords": ["bitcoin", "discovery", "esplora", "electrum"],
+  "keywords": [
+    "bitcoin",
+    "discovery",
+    "esplora",
+    "electrum"
+  ],
   "author": "Jose-Luis Landabaso",
   "license": "MIT",
   "bugs": {
     "url": "https://github.com/bitcoinerlab/discovery/issues"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@bitcoinerlab/explorer": "file:../explorer"
+  },
   "devDependencies": {
     "@types/jest": "^29.5.1",
     "@typescript-eslint/eslint-plugin": "^5.59.0",
@@ -41,7 +55,5 @@
     "prettier": "^2.8.7",
     "regtest-client": "^0.2.0",
     "typescript": "^5.0.4"
-  },
-  "dependencies": {
   }
 }

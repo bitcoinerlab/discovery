@@ -42,7 +42,10 @@
     "dist"
   ],
   "dependencies": {
-    "@bitcoinerlab/explorer": "file:../explorer"
+    "@bitcoinerlab/descriptors": "^0.2.1",
+    "@bitcoinerlab/explorer": "file:../explorer",
+    "@bitcoinerlab/secp256k1": "^1.0.2",
+    "bitcoinjs-lib": "^6.1.0"
   },
   "devDependencies": {
     "@types/jest": "^29.5.1",

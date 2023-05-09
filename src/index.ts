@@ -1,2 +1,2 @@
-import { Discovery } from './discovery';
-export { Discovery };
+import { DiscoveryFactory } from './discovery';
+export { DiscoveryFactory };

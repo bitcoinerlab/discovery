@@ -1,12 +1,11 @@
-//TODO: implement DescriptorsFactory, discover and getData.
 //TODO: reimplement discover using immer
-//TODO: change the names of hte interafces since they will collide with
-//the interfaces in the descriptor package
+//TODO: implement discoverStandard()
 
 import * as secp256k1 from '@bitcoinerlab/secp256k1';
 import * as descriptors from '@bitcoinerlab/descriptors';
 
-import type { Network } from 'bitcoinjs-lib';
+import { Network, Transaction } from 'bitcoinjs-lib';
+import type { BIP32Interface } from 'bip32';
 import type { Explorer } from '@bitcoinerlab/explorer';
 
 const { Descriptor } = descriptors.DescriptorsFactory(secp256k1);
@@ -47,8 +46,8 @@ type UtxoSetData = {
   //balance will be zero if this address was used in the past but has no more balance
   balance: number;
   //the props below will be not set if used but balance = 0;
-  beingFetched?: boolean;
-  fetchTime?: number;
+  utxosBeingFetched?: boolean;
+  indexFetchTime?: number;
   utxos?: {
     [utxoId: UtxoId]: Utxo;
   };
@@ -65,9 +64,10 @@ type DescriptorIndex = number | 'non-ranged';
  */
 interface DescriptorData {
   expression: string; // The descriptor string in ASCII format, possibly including a wildcard (*).
-  beingFetched: boolean; // A flag indicating if the descriptor data is being fetched.
-  fetchTime?: number;
-  indices: {
+  indicesBeingFetched: boolean; // A flag indicating if the descriptor data is being fetched.
+  descriptorFetchTime?: number;
+  gapLimit?: number; //A flag indicating what was the last gapLimit used (only set for ranged descriptors)
+  usedIndices: {
     //Will only be set when either the address has balance or had in the past
     [K in DescriptorIndex]?: UtxoSetData;
   };
@@ -95,8 +95,51 @@ export function DiscoveryFactory(explorer: Explorer) {
       this.data = {};
     }
 
-    //TODO: make this private
-    async discoverUnrangedDescriptor({
+    /**
+     * Check whether this utxoId has already been discovered
+     * in another part of the data structure (that does not correspond to the
+     * current expression and index).
+     * This check will be used to detect data failures that could lead to count
+     * duplicated funds.
+     * This could be the case where a ranged descriptor is used and then yet
+     * again the same descriptor was put into the data pool but unranged.
+     * Or the case where a descriptor is using a pubkey and another one
+     * (corresponding to the same address) uses a bip32 scheme.
+     */
+    utxoIdDuplicated({
+      utxoId,
+      networkId,
+      expression,
+      index
+    }: {
+      utxoId: UtxoId;
+      networkId: NetworkId;
+      expression: string;
+      index: DescriptorIndex;
+    }): boolean {
+      const networkData = this.data[networkId];
+      if (!networkData) return false;
+      const { descriptors } = networkData;
+
+      for (const _expression in descriptors) {
+        const descriptor = descriptors[_expression];
+        if (!descriptor) throw new Error(`Error: undefined descriptor`);
+        for (const _index in descriptor.usedIndices) {
+          const utxoSet = descriptor.usedIndices[_index];
+          if (
+            utxoSet &&
+            utxoSet.utxos &&
+            utxoSet.utxos[utxoId] &&
+            (expression !== _expression || index !== _index)
+          ) {
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+
+    async fetchAddress({
       expression,
       network,
       index
@@ -120,20 +163,23 @@ export function DiscoveryFactory(explorer: Explorer) {
             }).getAddress();
       const { used, balance } = await explorer.fetchAddress(address);
       if (used) {
-        if (!descriptor.indices[index])
-          descriptor.indices[index] = {
+        if (!descriptor.usedIndices[index])
+          descriptor.usedIndices[index] = {
             balance,
-            beingFetched: balance > 0
+            utxosBeingFetched: balance > 0
           };
         if (balance > 0) {
-          const unrangedDescriptor = descriptor.indices[index]!;
+          const unrangedDescriptor = descriptor.usedIndices[index]!;
           unrangedDescriptor.balance = balance;
-          unrangedDescriptor.beingFetched = true;
+          unrangedDescriptor.utxosBeingFetched = true;
           const utxos = await explorer.fetchUtxos(address);
           if (typeof unrangedDescriptor.utxos === 'undefined')
             unrangedDescriptor.utxos = {};
           for (const utxo of utxos) {
-            const utxoId = utxo.txHex + ':' + utxo.vout; //TODO: use txId
+            const txId = Transaction.fromHex(utxo.txHex).getId();
+            const utxoId = txId + ':' + utxo.vout;
+            if (this.utxoIdDuplicated({ utxoId, networkId, expression, index }))
+              throw new Error(`Error: duplicated utxoId: ${utxoId}`);
             if (!unrangedDescriptor.utxos[utxoId]) {
               unrangedDescriptor.utxos[utxoId] = {
                 utxoId,
@@ -142,67 +188,124 @@ export function DiscoveryFactory(explorer: Explorer) {
               };
             }
           }
-          unrangedDescriptor.beingFetched = false;
-          unrangedDescriptor.fetchTime = Math.floor(Date.now() / 1000);
+          unrangedDescriptor.utxosBeingFetched = false;
+          unrangedDescriptor.indexFetchTime = Math.floor(Date.now() / 1000);
         }
       }
       return { used, balance };
     }
 
-    //TODO: keep track of all addresses being fetched. throw if duplicated
-    //addresses. This could be the case where i have a ranged descriptor and
-    //then yet again the descriptor but unranged
-    //Or I could have a descriptor using a pubkey and another one (corresponding
-    //to the same address) that is using a bip32 scheme.
-    //I don't want to count more funds than the ones I really have!!!
-    //Maybe what i need to to is check whether the utxoId has been set in
-    //other parts
+    /**
+     * Fetches a descriptor or descriptors and returns a Promise that
+     * resolves when fetched.
+     */
     async discover({
       expression,
-      gapLimit = 20, //https://github.com/bitcoin/bips/blob/master/bip-0044.mediawiki#user-content-Address_gap_limit
-      network
+      gapLimit = 20,
+      network,
+      next
     }: {
-      expression: string;
+      expression: string | string[];
       gapLimit?: number;
       network: Network;
+      next?: () => Promise<void>;
     }) {
+      let nextPromise;
       const networkId = getNetworkId(network);
       if (typeof this.data[networkId] === 'undefined') {
         this.data[networkId] = { networkId, descriptors: {} };
       }
-      if (
-        typeof this.data[networkId]!.descriptors[expression] === 'undefined'
-      ) {
-        this.data[networkId]!.descriptors[expression] = {
-          expression,
-          beingFetched: true,
-          indices: {}
-        };
-      }
-      const descriptor = this.data[networkId]!.descriptors[expression]!;
-      if (expression.indexOf('*') !== -1) {
-        for (
-          let index = 0, consecutiveUnused = 0;
-          consecutiveUnused < gapLimit;
-          index++
+
+      const expressionArray = Array.isArray(expression)
+        ? expression
+        : [expression];
+
+      for (const expression of expressionArray) {
+        if (
+          typeof this.data[networkId]!.descriptors[expression] === 'undefined'
         ) {
-          const { used } = await this.discoverUnrangedDescriptor({
+          this.data[networkId]!.descriptors[expression] = {
             expression,
-            index,
+            indicesBeingFetched: true,
+            usedIndices: {}
+          };
+        }
+        const descriptor = this.data[networkId]!.descriptors[expression]!;
+        if (expression.indexOf('*') !== -1) {
+          descriptor.gapLimit = gapLimit;
+          for (let index = 0, gap = 0; gap < gapLimit; index++) {
+            const { used } = await this.fetchAddress({
+              expression,
+              index,
+              network
+            });
+            if (used) gap = 0;
+            else gap++;
+            if (used && next && !nextPromise) nextPromise = next();
+          }
+        } else {
+          const { used } = await this.fetchAddress({
+            expression,
+            index: 'non-ranged',
             network
           });
-          if (used) consecutiveUnused = 0;
-          else consecutiveUnused++;
+          if (used && next && !nextPromise) nextPromise = next();
         }
-      } else {
-        await this.discoverUnrangedDescriptor({
-          expression,
-          index: 'non-ranged',
-          network
-        });
+        descriptor.indicesBeingFetched = false;
+        descriptor.descriptorFetchTime = Math.floor(Date.now() / 1000);
       }
-      descriptor.beingFetched = false;
-      descriptor.fetchTime = Math.floor(Date.now() / 1000);
+      if (nextPromise) await nextPromise;
+    }
+
+    async Serial_DELETE_discoverStandard({
+      masterNode,
+      gapLimit = 20,
+      network
+    }: {
+      masterNode: BIP32Interface;
+      gapLimit?: number;
+      network: Network;
+    }) {
+      const { pkhBIP32, shWpkhBIP32, wpkhBIP32 } =
+        descriptors.scriptExpressions;
+      for (const expressionFn of [pkhBIP32, shWpkhBIP32, wpkhBIP32]) {
+        let account = 0;
+        const next = async () => {
+          const expression = [0, 1].map(change =>
+            expressionFn({ masterNode, network, account, change, index: '*' })
+          );
+          console.log('STANDARD', { expression, gapLimit, account });
+          account++;
+          await this.discover({ expression, gapLimit, network, next });
+        };
+        await next();
+      }
+    }
+    async discoverStandard({
+      masterNode,
+      gapLimit = 20,
+      network
+    }: {
+      masterNode: BIP32Interface;
+      gapLimit?: number;
+      network: Network;
+    }) {
+      const discoveryTasks = [];
+      const { pkhBIP32, shWpkhBIP32, wpkhBIP32 } =
+        descriptors.scriptExpressions;
+      for (const expressionFn of [pkhBIP32, shWpkhBIP32, wpkhBIP32]) {
+        let account = 0;
+        const next = async () => {
+          const expression = [0, 1].map(change =>
+            expressionFn({ masterNode, network, account, change, index: '*' })
+          );
+          console.log('STANDARD', { expression, gapLimit, account });
+          account++;
+          await this.discover({ expression, gapLimit, network, next });
+        };
+        discoveryTasks.push(next());
+      }
+      await Promise.all(discoveryTasks);
     }
 
     getData() {

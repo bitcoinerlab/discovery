@@ -2,12 +2,14 @@ import { RegtestUtils } from 'regtest-client';
 import { networks } from 'bitcoinjs-lib';
 import * as secp256k1 from '@bitcoinerlab/secp256k1';
 import * as descriptors from '@bitcoinerlab/descriptors';
+import { mnemonicToSeedSync } from 'bip39';
 import {
   EsploraExplorer,
+  ElectrumExplorer,
   ESPLORA_LOCAL_REGTEST_URL
 } from '@bitcoinerlab/explorer';
 const explorer = new EsploraExplorer({ url: ESPLORA_LOCAL_REGTEST_URL });
-const { Descriptor } = descriptors.DescriptorsFactory(secp256k1);
+const { Descriptor, BIP32 } = descriptors.DescriptorsFactory(secp256k1);
 const regtestUtils = new RegtestUtils();
 import { DiscoveryFactory } from '../dist';
 const { Discovery } = DiscoveryFactory(explorer);
@@ -59,17 +61,89 @@ describe('Discovery', () => {
         await new Promise(resolve => setTimeout(resolve, 5000)); //sleep 5 sec
       }
     }
-  }, 10000);
+  }, 20000);
 
-  test(`Discover`, async () => {
-    const discovery = new Discovery();
-    for (const descriptor of fixtures.regtest.descriptors) {
-      await discovery.discover({
-        //gapLimit: 1, //TODO: TEST THIS. with gapLimit 1 it should not get anything
-        expression: descriptor.expression,
+  test(
+    `Discover`,
+    async () => {
+      const discovery = new Discovery();
+      for (const descriptor of fixtures.regtest.descriptors) {
+        await discovery.discover({
+          //gapLimit: 1, //TODO: TEST THIS. with gapLimit 1 it should not get anything
+          expression: descriptor.expression,
+          network
+        });
+      }
+      const masterNode = BIP32.fromSeed(
+        mnemonicToSeedSync(fixtures.regtest.mnemonic),
         network
+      );
+      await discovery.discoverStandard({ masterNode, network });
+      console.log(JSON.stringify(discovery.getData(), null, 2));
+    },
+    60 * 5 * 1000
+  );
+
+  test(
+    `Discover Abandon on mainnet electrum`,
+    async () => {
+      const { Discovery } = DiscoveryFactory(new ElectrumExplorer());
+      const masterNodeAbandon = BIP32.fromSeed(
+        mnemonicToSeedSync(
+          'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'
+        ),
+        networks.bitcoin
+      );
+      const discovery = new Discovery();
+      await discovery.discoverStandard({
+        masterNode: masterNodeAbandon,
+        network: networks.bitcoin
       });
-    }
-    console.log(JSON.stringify(discovery.getData(), null, 2));
-  });
+
+      console.log(JSON.stringify(discovery.getData(), null, 2));
+    },
+    60 * 5 * 1000
+  );
+  test(
+    `Discover Abandon on mainnet`,
+    async () => {
+      const { Discovery } = DiscoveryFactory(new EsploraExplorer());
+      const masterNodeAbandon = BIP32.fromSeed(
+        mnemonicToSeedSync(
+          'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'
+        ),
+        networks.bitcoin
+      );
+      const discovery = new Discovery();
+      await discovery.discoverStandard({
+        masterNode: masterNodeAbandon,
+        network: networks.bitcoin
+      });
+
+      console.log(JSON.stringify(discovery.getData(), null, 2));
+    },
+    60 * 5 * 1000
+  );
+  test(
+    `Discover Abandon on testnet`,
+    async () => {
+      const { Discovery } = DiscoveryFactory(
+        new EsploraExplorer({ url: 'https://blockstream.info/testnet/api' })
+      );
+      const masterNodeAbandon = BIP32.fromSeed(
+        mnemonicToSeedSync(
+          'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'
+        ),
+        networks.testnet
+      );
+      const discovery = new Discovery();
+      await discovery.discoverStandard({
+        masterNode: masterNodeAbandon,
+        network: networks.testnet
+      });
+
+      console.log(JSON.stringify(discovery.getData(), null, 2));
+    },
+    60 * 5 * 1000
+  );
 });

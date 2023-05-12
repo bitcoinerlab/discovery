@@ -11,6 +11,7 @@
     "build:test": "npx tsc --project tsconfig.test.json",
     "build": "npm run build:src && npm run build:test",
     "lint": "eslint --ignore-path .gitignore --ext .ts src/ test/",
+    "buildlocalexplorer": "cd ../explorer && npm run build && cd - && npm uninstall @bitcoiberlab/explorer &&  npm install file:../explorer",
     "tester": "docker ps | grep bitcoinerlab/tester > /dev/null || (docker pull bitcoinerlab/tester && docker run -d -p 8080:8080 -p 60401:60401 -p 3002:3002 bitcoinerlab/tester && sleep 5)",
     "test": "npm run lint && npm run build && npm run tester && NODE_OPTIONS=\"--experimental-fetch\" jest",
     "prepublishOnly": "npm test"
@@ -51,6 +52,7 @@
     "@types/jest": "^29.5.1",
     "@typescript-eslint/eslint-plugin": "^5.59.0",
     "@typescript-eslint/parser": "^5.59.0",
+    "bip39": "^3.1.0",
     "eslint-config-prettier": "^8.8.0",
     "eslint-plugin-jest": "^27.2.1",
     "eslint-plugin-prettier": "^4.2.1",

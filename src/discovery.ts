@@ -1,5 +1,8 @@
 //TODO: reimplement discover using immer
 //TODO: implement discoverStandard()
+//TODO: fetchUtxos should be done after all the balances have been retrieved
+//since this is a very slow procedur and anyway I don't need the utxos until
+//I want to spend.
 
 import * as secp256k1 from '@bitcoinerlab/secp256k1';
 import * as descriptors from '@bitcoinerlab/descriptors';
@@ -164,10 +167,7 @@ export function DiscoveryFactory(explorer: Explorer) {
       const { used, balance } = await explorer.fetchAddress(address);
       if (used) {
         if (!descriptor.usedIndices[index])
-          descriptor.usedIndices[index] = {
-            balance,
-            utxosBeingFetched: balance > 0
-          };
+          descriptor.usedIndices[index] = { balance };
         if (balance > 0) {
           const unrangedDescriptor = descriptor.usedIndices[index]!;
           unrangedDescriptor.balance = balance;
@@ -257,30 +257,6 @@ export function DiscoveryFactory(explorer: Explorer) {
       if (nextPromise) await nextPromise;
     }
 
-    async Serial_DELETE_discoverStandard({
-      masterNode,
-      gapLimit = 20,
-      network
-    }: {
-      masterNode: BIP32Interface;
-      gapLimit?: number;
-      network: Network;
-    }) {
-      const { pkhBIP32, shWpkhBIP32, wpkhBIP32 } =
-        descriptors.scriptExpressions;
-      for (const expressionFn of [pkhBIP32, shWpkhBIP32, wpkhBIP32]) {
-        let account = 0;
-        const next = async () => {
-          const expression = [0, 1].map(change =>
-            expressionFn({ masterNode, network, account, change, index: '*' })
-          );
-          console.log('STANDARD', { expression, gapLimit, account });
-          account++;
-          await this.discover({ expression, gapLimit, network, next });
-        };
-        await next();
-      }
-    }
     async discoverStandard({
       masterNode,
       gapLimit = 20,

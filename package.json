@@ -5,15 +5,16 @@
   "description": "A TypeScript library for retrieving Bitcoin funds from ranged descriptors, leveraging @bitcoinerlab/explorer for standardized access to multiple blockchain explorers.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "NOTE": "--openHandlesTimeout=4000 is important here because of native fetch leaves open handles for a few seconds even after correct await response - even when all fetch requests are correctly awaited and the responses are consumed, the underlying connections created by Node.js can remain open due to connection pooling, which Jest interprets as an open handle. Alternatively, put this into the code: await new Promise(resolve => setTimeout(resolve, 4000));",
   "scripts": {
     "docs": "jsdoc -c jsdoc.json",
     "build:src": "npx tsc --project tsconfig.src.json",
     "build:test": "npx tsc --project tsconfig.test.json",
     "build": "npm run build:src && npm run build:test",
     "lint": "eslint --ignore-path .gitignore --ext .ts src/ test/",
-    "buildlocalexplorer": "cd ../explorer && npm run build && cd - && npm uninstall @bitcoiberlab/explorer &&  npm install file:../explorer",
+    "updatelocalexplorer": "cd ../explorer && npm run build && cd - && npm uninstall @bitcoiberlab/explorer &&  npm install file:../explorer",
     "tester": "docker ps | grep bitcoinerlab/tester > /dev/null || (docker pull bitcoinerlab/tester && docker run -d -p 8080:8080 -p 60401:60401 -p 3002:3002 bitcoinerlab/tester && sleep 5)",
-    "test": "npm run lint && npm run build && npm run tester && NODE_OPTIONS=\"--experimental-fetch\" jest",
+    "test": "npm run lint && npm run build && npm run tester && NODE_OPTIONS=\"--experimental-fetch\" jest --openHandlesTimeout=4000",
     "prepublishOnly": "npm test"
   },
   "jest": {

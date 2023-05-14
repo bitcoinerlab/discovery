@@ -3,11 +3,19 @@
 //TODO: fetchUtxos should be done after all the balances have been retrieved
 //since this is a very slow procedur and anyway I don't need the utxos until
 //I want to spend.
+//  -> Reuse fetchScriptHash with flag fetchUtxos
+//TODO: explorer should be working with scriptHashes not addresses. It's gonna
+//be more future-proof! Redo!
+//TODO: modify explorer so that getAddress also returns block_height. this is
+//possible both with esplora and electrum. This is the way to know whether i
+//need to re-download (not balance)
+//Also, when I download again the utxos, maybe I can download them starting
+//from a blockheight?
 
 import * as secp256k1 from '@bitcoinerlab/secp256k1';
 import * as descriptors from '@bitcoinerlab/descriptors';
 
-import { Network, Transaction } from 'bitcoinjs-lib';
+import { Network, Transaction, crypto } from 'bitcoinjs-lib';
 import type { BIP32Interface } from 'bip32';
 import type { Explorer } from '@bitcoinerlab/explorer';
 
@@ -142,37 +150,55 @@ export function DiscoveryFactory(explorer: Explorer) {
       return false;
     }
 
-    async fetchAddress({
+    async fetchScriptHash({
       expression,
+      index,
       network,
-      index
+      fetchUtxos = true
     }: {
       expression: string;
-      network: Network;
       index: DescriptorIndex;
+      network: Network;
+      fetchUtxos?: boolean;
     }) {
       const networkId = getNetworkId(network);
       const descriptor = this.data[networkId]!.descriptors[expression]!;
-      const address =
-        index === 'non-ranged'
-          ? new Descriptor({
-              expression,
-              network
-            }).getAddress()
-          : new Descriptor({
-              expression,
-              network,
-              index
-            }).getAddress();
-      const { used, balance } = await explorer.fetchAddress(address);
+      //https://github.com/bitcoinjs/bitcoinjs-lib/issues/990
+      const scriptHash = crypto
+        .sha256(
+          index === 'non-ranged'
+            ? new Descriptor({
+                expression,
+                network
+              }).getScriptPubKey()
+            : new Descriptor({
+                expression,
+                network,
+                index
+              }).getScriptPubKey()
+        )
+        .toString('hex');
+      const { used, balance } = await explorer.fetchScriptHash(scriptHash);
+      //TODO: Note that if the balance is the same as in the previous fetch,
+      //this could also be the case when an utxo was consumed and a new one
+      //appeared with a different value. that's tricky! that means we have to
+      //re-download always???
+      //Maybe there is a way to know lastUtxo? or lastReceive for an address?
+      //Ok, I have this which can be super helpful!:
+      //GET /address/:address/txs/chain[/:last_seen_txid]
+      //What about electrs?
+
       if (used) {
-        if (!descriptor.usedIndices[index])
-          descriptor.usedIndices[index] = { balance };
-        if (balance > 0) {
-          const unrangedDescriptor = descriptor.usedIndices[index]!;
-          unrangedDescriptor.balance = balance;
+        if (descriptor.usedIndices[index]) {
+          if (descriptor.usedIndices[index]!.balance !== balance)
+            descriptor.usedIndices[index]!.balance = balance;
+        } else descriptor.usedIndices[index] = { balance };
+        const unrangedDescriptor = descriptor.usedIndices[index]
+          ? { ...descriptor.usedIndices[index], balance }
+          : { balance };
+        if (balance > 0 && fetchUtxos) {
           unrangedDescriptor.utxosBeingFetched = true;
-          const utxos = await explorer.fetchUtxos(address);
+          const utxos = await explorer.fetchUtxos({ scriptHash });
           if (typeof unrangedDescriptor.utxos === 'undefined')
             unrangedDescriptor.utxos = {};
           for (const utxo of utxos) {
@@ -189,8 +215,8 @@ export function DiscoveryFactory(explorer: Explorer) {
             }
           }
           unrangedDescriptor.utxosBeingFetched = false;
-          unrangedDescriptor.indexFetchTime = Math.floor(Date.now() / 1000);
         }
+        unrangedDescriptor.indexFetchTime = Math.floor(Date.now() / 1000);
       }
       return { used, balance };
     }
@@ -234,7 +260,7 @@ export function DiscoveryFactory(explorer: Explorer) {
         if (expression.indexOf('*') !== -1) {
           descriptor.gapLimit = gapLimit;
           for (let index = 0, gap = 0; gap < gapLimit; index++) {
-            const { used } = await this.fetchAddress({
+            const { used } = await this.fetchScriptHash({
               expression,
               index,
               network
@@ -244,7 +270,7 @@ export function DiscoveryFactory(explorer: Explorer) {
             if (used && next && !nextPromise) nextPromise = next();
           }
         } else {
-          const { used } = await this.fetchAddress({
+          const { used } = await this.fetchScriptHash({
             expression,
             index: 'non-ranged',
             network

@@ -84,7 +84,7 @@ describe('Discovery', () => {
           network
         );
         await discovery.discoverStandard({ masterNode, network });
-        console.log(JSON.stringify(discovery.getData(), null, 2));
+        console.log(JSON.stringify(discovery.getDiscoveryInfo(), null, 2));
       },
       60 * 5 * 1000
     );
@@ -129,7 +129,7 @@ describe('Discovery', () => {
           network: networks.bitcoin
         });
 
-        console.log(JSON.stringify(discovery.getData(), null, 2));
+        console.log(JSON.stringify(discovery.getDiscoveryInfo(), null, 2));
       },
       60 * 5 * 1000
     );

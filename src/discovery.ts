@@ -1,67 +1,35 @@
-//TODO: Implement scriptPubKeyDuplicated
+import { produce } from 'immer';
+import { shallowEqualArrays } from 'shallow-equal';
 
-import * as secp256k1 from '@bitcoinerlab/secp256k1';
-import * as descriptors from '@bitcoinerlab/descriptors';
+import {
+  getNetworkId,
+  getScriptPubKey,
+  deriveScriptPubKeyUtxos,
+  deriveUtxosBalance
+} from './deriveData';
+
+import { scriptExpressions } from '@bitcoinerlab/descriptors';
 
 import { Network, crypto } from 'bitcoinjs-lib';
 import type { BIP32Interface } from 'bip32';
 import type { Explorer } from '@bitcoinerlab/explorer';
 
-const { Descriptor } = descriptors.DescriptorsFactory(secp256k1);
+import {
+  NetworkId,
+  TxId,
+  TxHex,
+  TxInfo,
+  ScriptPubKeyInfo,
+  Expression,
+  DescriptorIndex,
+  DescriptorInfo,
+  NetworkInfo,
+  DiscoveryInfo,
+  Utxo,
+  TxStatus
+} from './types';
 
-enum NetworkId {
-  BITCOIN = 'BITCOIN',
-  REGTEST = 'REGTEST',
-  TESTNET = 'TESTNET',
-  SIGNET = 'SIGNET'
-}
-
-const getNetworkId = (network: Network): NetworkId => {
-  if (network.bech32 === 'bc') return NetworkId.BITCOIN;
-  if (network.bech32 === 'bcrt') return NetworkId.REGTEST;
-  if (network.bech32 === 'tb') return NetworkId.TESTNET;
-  if (network.bech32 === 'sb') return NetworkId.SIGNET;
-  throw new Error('Unknown network');
-};
-
-type TxInfo = {
-  txId: string;
-  blockHeight: number;
-  irreversible: boolean;
-  txHex?: string;
-};
-
-type ScriptPubKeyInfo = {
-  //Last time the scriptPubKey was fetched
-  txIds: Array<TxInfo>;
-  fetchTime: number;
-};
-
-/**
- * Represents the descriptor index for a ranged descriptor (number) or marks
- * this descriptor as non-ranged.
- */
-type Expression = string;
-type DescriptorIndex = number | 'non-ranged';
-
-/**
- * Represents a descriptor, which can be either a ranged descriptor or a non-ranged descriptor.
- */
-type DescriptorInfo = {
-  expression: Expression; // The descriptor string in ASCII format, possibly including a wildcard (*).
-  fetchingScriptPubKeyInfoRecords: boolean; // A flag indicating if the descriptor data is being fetched.
-  descriptorFetchTime?: number;
-  gapLimit?: number; //A flag indicating what was the last gapLimit used (only set for ranged descriptors)
-  //Will only be set when txCount > 0
-  scriptPubKeyInfoRecords?: Record<DescriptorIndex, ScriptPubKeyInfo>;
-};
-
-type NetworkInfo = {
-  networkId: NetworkId; // An enum representing the network ID
-  descriptorInfoRecords: Record<Expression, DescriptorInfo>;
-};
-
-type DiscoveryInfo = Record<NetworkId, NetworkInfo>;
+const now = () => Math.floor(Date.now() / 1000);
 
 export function DiscoveryFactory(explorer: Explorer) {
   /**
@@ -75,32 +43,174 @@ export function DiscoveryFactory(explorer: Explorer) {
      * @param {Explorer} explorer - The explorer instance.
      */
     constructor() {
-      this.discoveryInfo = <DiscoveryInfo>{};
+      this.discoveryInfo = {} as DiscoveryInfo;
+      for (const networkId of Object.values(NetworkId)) {
+        const txInfoRecords: Record<TxId, TxInfo> = {};
+        const descriptors: Record<Expression, DescriptorInfo> = {};
+        const networkInfo: NetworkInfo = {
+          descriptors,
+          txInfoRecords
+        };
+        this.discoveryInfo[networkId] = networkInfo;
+      }
     }
 
-    async updateScriptPubKeyInfo({
+    async discoverScriptPubKey({
       expression,
       index,
       network
     }: {
-      expression: string;
+      expression: Expression;
       index: DescriptorIndex;
       network: Network;
-    }): Promise<{ balance: number; txCount: number }> {
+    }): Promise<boolean> {
       const networkId = getNetworkId(network);
-      const descriptorInfo =
-        this.discoveryInfo[networkId]?.descriptorInfoRecords[expression];
-      if (!descriptorInfo)
-        throw new Error(`data structure not ready for ${expression}`);
-
-      const scriptPubKey =
-        index === 'non-ranged'
-          ? new Descriptor({ expression, network }).getScriptPubKey()
-          : new Descriptor({ expression, network, index }).getScriptPubKey();
+      const scriptPubKey = getScriptPubKey(networkId, expression, index);
       //https://electrumx.readthedocs.io/en/latest/protocol-basics.html#script-hashes
       const scriptHash = crypto.sha256(scriptPubKey).toString('hex');
-      const txs = await explorer.fetchTxHistory({ scriptHash });
-      return { txCount: txs.length, balance: txs.length /*TODO: obviously*/ };
+      type TxHistory = {
+        txId: string;
+        blockHeight: number;
+        irreversible: boolean;
+      };
+
+      const txHistoryArray: Array<TxHistory> = await explorer.fetchTxHistory({
+        scriptHash
+      });
+
+      this.discoveryInfo = produce(this.discoveryInfo, discoveryInfo => {
+        // Update txInfoRecords
+        const txInfoRecords = discoveryInfo[networkId].txInfoRecords;
+        txHistoryArray.forEach(({ txId, irreversible, blockHeight }) => {
+          const txInfo = txInfoRecords[txId];
+          if (!txInfo) {
+            txInfoRecords[txId] = { irreversible, blockHeight };
+          } else {
+            txInfo.irreversible = irreversible;
+            txInfo.blockHeight = blockHeight;
+          }
+        });
+        //Update descriptors
+        const scriptPubKeyInfoRecords =
+          discoveryInfo[networkId].descriptors[expression]
+            ?.scriptPubKeyInfoRecords;
+        if (!scriptPubKeyInfoRecords)
+          throw new Error(
+            `scriptPubKeyInfoRecords does not exist for ${networkId} and ${expression}`
+          );
+        const scriptPubKeyInfo = scriptPubKeyInfoRecords[index];
+        const txIds = txHistoryArray.map(txHistory => txHistory.txId);
+        if (!scriptPubKeyInfo) {
+          scriptPubKeyInfoRecords[index] = { txIds, timeFetched: now() };
+        } else {
+          if (!shallowEqualArrays(txIds, scriptPubKeyInfo.txIds)) {
+            scriptPubKeyInfo.txIds = txIds;
+          }
+          scriptPubKeyInfo.timeFetched = now();
+        }
+      });
+      return !!txHistoryArray.length;
+    }
+
+    getBalanceScriptPubKey({
+      expression,
+      index,
+      network,
+      txStatus
+    }: {
+      expression: Expression;
+      index: DescriptorIndex;
+      network: Network;
+      txStatus: TxStatus;
+    }): number {
+      let balance: number = 0;
+      const networkId = getNetworkId(network);
+      const utxos = this.getUtxosScriptPubKey({
+        expression,
+        index,
+        network,
+        txStatus
+      });
+      balance = deriveUtxosBalance(utxos, this.discoveryInfo, networkId);
+      return balance;
+    }
+    getBalance({
+      expression,
+      network,
+      txStatus
+    }: {
+      expression: Expression | Array<Expression>;
+      network: Network;
+      txStatus: TxStatus;
+    }): number {
+      let balance: number = 0;
+      const expressionArray = Array.isArray(expression)
+        ? expression
+        : [expression];
+      const networkId = getNetworkId(network);
+      for (const expression of expressionArray) {
+        const utxos = this.getUtxos({ expression, network, txStatus });
+        balance += deriveUtxosBalance(utxos, this.discoveryInfo, networkId);
+      }
+      return balance;
+    }
+
+    getUtxosScriptPubKey({
+      expression,
+      index,
+      network,
+      txStatus
+    }: {
+      expression: Expression;
+      index: DescriptorIndex;
+      network: Network;
+      txStatus: TxStatus;
+    }): Utxo[] {
+      const networkId = getNetworkId(network);
+      return deriveScriptPubKeyUtxos(
+        this.discoveryInfo,
+        networkId,
+        expression,
+        index,
+        txStatus
+      );
+    }
+
+    getUtxos({
+      expression,
+      network,
+      txStatus
+    }: {
+      expression: Expression | Array<Expression>;
+      network: Network;
+      txStatus: TxStatus;
+    }): Utxo[] {
+      const utxos: Utxo[] = [];
+      const expressionArray = Array.isArray(expression)
+        ? expression
+        : [expression];
+      const networkId = getNetworkId(network);
+      const networkInfo = this.discoveryInfo[networkId];
+      for (const expression of expressionArray) {
+        const scriptPubKeyInfoRecords =
+          networkInfo.descriptors[expression]?.scriptPubKeyInfoRecords || [];
+        for (const indexStr in scriptPubKeyInfoRecords) {
+          const index = indexStr === 'non-ranged' ? indexStr : Number(indexStr);
+          utxos.push(
+            ...this.getUtxosScriptPubKey({
+              network,
+              expression,
+              index,
+              txStatus
+            })
+          );
+        }
+      }
+
+      //Deduplucate in case of expression: Array<Expression> with duplicated
+      //expressions
+      const dedupedUtxos = [...new Set(utxos)];
+      return dedupedUtxos;
     }
 
     /**
@@ -111,90 +221,138 @@ export function DiscoveryFactory(explorer: Explorer) {
       expression,
       gapLimit = 20,
       network,
+      onUsedDescriptor,
       next
     }: {
-      expression: string | string[];
+      expression: Expression | Array<Expression>;
       gapLimit?: number;
       network: Network;
+      onUsedDescriptor?: (expression: Expression) => void;
       next?: () => Promise<void>;
     }) {
       let nextPromise;
-      const networkId = getNetworkId(network);
-      if (!this.discoveryInfo[networkId]) {
-        this.discoveryInfo[networkId] = {
-          networkId,
-          descriptorInfoRecords: {}
-        };
-      }
+      let usedDescriptorNotified = false;
 
       const expressionArray = Array.isArray(expression)
         ? expression
         : [expression];
-
+      const networkId = getNetworkId(network);
       for (const expression of expressionArray) {
-        if (
-          typeof this.discoveryInfo[networkId]!.descriptorInfoRecords[
-            expression
-          ] === 'undefined'
-        ) {
-          this.discoveryInfo[networkId]!.descriptorInfoRecords[expression] = {
-            expression,
-            fetchingScriptPubKeyInfoRecords: true,
-            scriptPubKeyInfoRecords: <
-              Record<DescriptorIndex, ScriptPubKeyInfo>
-            >{}
-          };
-        }
-        const descriptorInfo =
-          this.discoveryInfo[networkId]!.descriptorInfoRecords[expression]!;
-        descriptorInfo.fetchingScriptPubKeyInfoRecords = true;
-        if (expression.indexOf('*') !== -1) {
-          descriptorInfo.gapLimit = gapLimit;
-          for (let index = 0, gap = 0; gap < gapLimit; index++) {
-            const { txCount } = await this.updateScriptPubKeyInfo({
-              expression,
-              index,
-              network
-            });
-            if (txCount) gap = 0;
-            else gap++;
-            if (txCount && next && !nextPromise) nextPromise = next();
+        this.discoveryInfo = produce(this.discoveryInfo, discoveryInfo => {
+          const descriptorInfo =
+            discoveryInfo[networkId].descriptors[expression];
+          if (!descriptorInfo) {
+            discoveryInfo[networkId].descriptors[expression] = {
+              timeFetched: 0,
+              fetching: true,
+              scriptPubKeyInfoRecords: {} as Record<
+                DescriptorIndex,
+                ScriptPubKeyInfo
+              >
+            };
+          } else {
+            descriptorInfo.fetching = true;
           }
-        } else {
-          const { txCount } = await this.updateScriptPubKeyInfo({
+        });
+
+        let gap = 0;
+        let index = 0;
+        const isRanged = expression.indexOf('*') !== -1;
+        while (isRanged ? gap < gapLimit : index < 1) {
+          const used = await this.discoverScriptPubKey({
             expression,
-            index: 'non-ranged',
+            index: isRanged ? index : 'non-ranged',
             network
           });
-          if (txCount && next && !nextPromise) nextPromise = next();
+
+          if (used) gap = 0;
+          else gap++;
+
+          if (used && next && !nextPromise) nextPromise = next();
+
+          index++;
+
+          if (used && onUsedDescriptor && usedDescriptorNotified === false) {
+            onUsedDescriptor(expression);
+            usedDescriptorNotified = true;
+          }
         }
-        descriptorInfo.fetchingScriptPubKeyInfoRecords = false;
-        descriptorInfo.descriptorFetchTime = Math.floor(Date.now() / 1000);
+        this.discoveryInfo = produce(this.discoveryInfo, discoveryInfo => {
+          const descriptorInfo =
+            discoveryInfo[networkId].descriptors[expression];
+          if (!descriptorInfo)
+            throw new Error(
+              `Descriptor for ${networkId} and ${expression} does not exist`
+            );
+          descriptorInfo.fetching = false;
+          descriptorInfo.timeFetched = now();
+        });
       }
       if (nextPromise) await nextPromise;
+    }
+
+    /**
+     * Fetches all txs of a certain network.
+     */
+    async discoverTxs({ network }: { network: Network }) {
+      const txHexRecords: Record<TxId, TxHex> = {};
+      const networkId = getNetworkId(network);
+      const networkInfo = this.discoveryInfo[networkId];
+      for (const expression in networkInfo.descriptors) {
+        const scriptPubKeyInfoRecords =
+          networkInfo.descriptors[expression]?.scriptPubKeyInfoRecords || [];
+        for (const index in scriptPubKeyInfoRecords) {
+          const txIds = scriptPubKeyInfoRecords[index]?.txIds;
+          if (!txIds)
+            throw new Error(
+              `Error: cannot retrieve txs for nonexising scriptPubKey: ${networkId}, ${expression}, ${index}`
+            );
+          for (const txId of txIds)
+            if (!networkInfo.txInfoRecords[txId]?.txHex)
+              txHexRecords[txId] = await explorer.fetchTx(txId);
+        }
+      }
+      if (Object.keys(txHexRecords).length) {
+        this.discoveryInfo = produce(this.discoveryInfo, discoveryInfo => {
+          for (const txId in txHexRecords) {
+            const txHex = txHexRecords[txId];
+            if (!txHex) throw new Error(`txHex not retrieved for ${txId}`);
+            const txInfo = discoveryInfo[networkId].txInfoRecords[txId];
+            if (!txInfo) throw new Error(`txInfo does not exist for ${txId}`);
+            txInfo.txHex = txHex;
+          }
+        });
+      }
     }
 
     async discoverStandard({
       masterNode,
       gapLimit = 20,
-      network
+      network,
+      onUsedDescriptor
     }: {
       masterNode: BIP32Interface;
       gapLimit?: number;
       network: Network;
+      onUsedDescriptor?: (expression: Expression) => void;
     }) {
       const discoveryTasks = [];
-      const { pkhBIP32, shWpkhBIP32, wpkhBIP32 } =
-        descriptors.scriptExpressions;
+      const { pkhBIP32, shWpkhBIP32, wpkhBIP32 } = scriptExpressions;
       for (const expressionFn of [pkhBIP32, shWpkhBIP32, wpkhBIP32]) {
         let account = 0;
         const next = async () => {
           const expression = [0, 1].map(change =>
             expressionFn({ masterNode, network, account, change, index: '*' })
           );
-          console.log('STANDARD', { expression, gapLimit, account });
+          //console.log('STANDARD', { expression, gapLimit, account });
           account++;
-          await this.discover({ expression, gapLimit, network, next });
+          await this.discover({
+            expression,
+            gapLimit,
+            network,
+            next,
+            ...(onUsedDescriptor ? { onUsedDescriptor } : {})
+          });
         };
         discoveryTasks.push(next());
       }

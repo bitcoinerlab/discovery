@@ -1,3 +1,7 @@
+//TODO: Test that The sorting is the same for esplora and electrum with older
+//txs at the beginning of the array and mempool ones at the end
+//TODO: Test error if getUtxos without first discoverTxs or discover
+
 import { RegtestUtils } from 'regtest-client';
 import { networks } from 'bitcoinjs-lib';
 import * as secp256k1 from '@bitcoinerlab/secp256k1';
@@ -11,14 +15,18 @@ import {
 const explorer = new EsploraExplorer({ url: ESPLORA_LOCAL_REGTEST_URL });
 const { Descriptor, BIP32 } = descriptors.DescriptorsFactory(secp256k1);
 const regtestUtils = new RegtestUtils();
-import { DiscoveryFactory } from '../dist';
+import { DiscoveryFactory, TxStatus } from '../dist';
 const { Discovery } = DiscoveryFactory(explorer);
 
 import { fixtures } from './fixtures/discovery';
 const network = networks.regtest;
 
-const regtestTest = true;
-const mainTest = false;
+const regtestTest = false;
+const mainTest = true;
+
+const onUsedDescriptor = (expression: string) => {
+  console.log(`TRACE - onUsedDescriptor(${expression}`);
+};
 
 describe('Discovery', () => {
   if (regtestTest)
@@ -83,7 +91,12 @@ describe('Discovery', () => {
           mnemonicToSeedSync(fixtures.regtest.mnemonic),
           network
         );
-        await discovery.discoverStandard({ masterNode, network });
+        await discovery.discoverStandard({
+          masterNode,
+          network,
+          onUsedDescriptor
+        });
+        await discovery.discoverTxs({ network });
         console.log(JSON.stringify(discovery.getDiscoveryInfo(), null, 2));
       },
       60 * 5 * 1000
@@ -104,7 +117,8 @@ describe('Discovery', () => {
   //    const discovery = new Discovery();
   //    await discovery.discoverStandard({
   //      masterNode: masterNodeAbandon,
-  //      network: networks.bitcoin
+  //      network: networks.bitcoin,
+  //      onUsedDescriptor
   //    });
 
   //    await explorer.close();
@@ -126,10 +140,29 @@ describe('Discovery', () => {
         const discovery = new Discovery();
         await discovery.discoverStandard({
           masterNode: masterNodeAbandon,
-          network: networks.bitcoin
+          network: networks.bitcoin,
+          onUsedDescriptor
         });
+        await discovery.discoverTxs({ network: networks.bitcoin });
 
-        console.log(JSON.stringify(discovery.getDiscoveryInfo(), null, 2));
+        const discoveryInfo = discovery.getDiscoveryInfo();
+        //console.log(JSON.stringify(discoveryInfo, null, 2));
+
+        for (const expression in discoveryInfo['BITCOIN'].descriptors) {
+          //const utxos = discovery.getUtxos({
+          //  network: networks.bitcoin,
+          //  expression,
+          //  txStatus: TxStatus.ALL
+          //});
+          //console.log(`Utxos for ${expression}:`);
+          //console.log(JSON.stringify(utxos, null, 2));
+          const balance = discovery.getBalance({
+            network: networks.bitcoin,
+            expression,
+            txStatus: TxStatus.ALL
+          });
+          console.log(`Balance for ${expression}: ${balance}`);
+        }
       },
       60 * 5 * 1000
     );
@@ -148,7 +181,8 @@ describe('Discovery', () => {
   //    const discovery = new Discovery();
   //    await discovery.discoverStandard({
   //      masterNode: masterNodeAbandon,
-  //      network: networks.testnet
+  //      network: networks.testnet,
+  //      onUsedDescriptor
   //    });
 
   //    console.log(JSON.stringify(discovery.getData(), null, 2));

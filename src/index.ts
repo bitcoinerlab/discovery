@@ -1,2 +1,3 @@
 import { DiscoveryFactory } from './discovery';
-export { DiscoveryFactory };
+import { TxStatus } from './types';
+export { DiscoveryFactory, TxStatus };

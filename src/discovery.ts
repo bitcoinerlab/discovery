@@ -1,3 +1,9 @@
+//TODO: methods still needed: getDescriptors, getWallets
+//  -> getWallets assumes last 2 elements of descriptors are change + index (non hardened) and returns descriptors up to the change path
+//
+//TODO: method getNextDescriptor
+//TODO: do discoverTxs automatically
+//TODO: remove unused functions from explorer (makes it easier manteinance)
 import { produce } from 'immer';
 import { shallowEqualArrays } from 'shallow-equal';
 
@@ -29,6 +35,10 @@ import {
   TxStatus
 } from './types';
 
+import { DescriptorsFactory } from '@bitcoinerlab/descriptors';
+import * as secp256k1 from '@bitcoinerlab/secp256k1';
+const { Descriptor } = DescriptorsFactory(secp256k1);
+
 const now = () => Math.floor(Date.now() / 1000);
 
 export function DiscoveryFactory(explorer: Explorer) {
@@ -53,6 +63,87 @@ export function DiscoveryFactory(explorer: Explorer) {
         };
         this.discoveryInfo[networkId] = networkInfo;
       }
+    }
+
+    getDescritors({ network }: { network: Network }): Array<Expression> {
+      const networkId = getNetworkId(network);
+      return Object.keys(this.discoveryInfo[networkId].descriptors);
+    }
+    /**
+     * Retrieves wallet descriptors grouped into wallets. A wallet is identified
+     * by descriptors sharing the same script and having 1 ranged key expression
+     * for the same key that shares fingerprint, origin path and with
+     * keyExpressions either /0/* or /1/*.
+     *
+     * @param {Network} network - The network for the descriptors.
+     *
+     * @returns {Array<Array<Expression>>} - An array of wallets, each wallet is
+     * an array of descriptor expressions.
+     */
+
+    getWallets({ network }: { network: Network }): Array<Array<Expression>> {
+      const expressions = this.getDescritors({ network });
+      const expandedDescriptors = expressions.map(expression => ({
+        expression,
+        ...new Descriptor({ expression, network }).expand()
+      }));
+      const hashMap: Record<
+        string,
+        Array<{ expression: string; keyPath: string }>
+      > = {};
+
+      for (const expandedDescriptor of expandedDescriptors) {
+        const { expression, expandedExpression, expansionMap } =
+          expandedDescriptor;
+
+        let wildcardCount = 0;
+        for (const key in expansionMap) {
+          const keyInfo = expansionMap[key];
+          if (!keyInfo)
+            throw new Error(
+              `keyInfo not defined for key ${key} in ${expression}`
+            );
+          if (keyInfo.keyPath?.indexOf('*') !== -1) wildcardCount++;
+          if (wildcardCount > 1)
+            throw new Error(`Error: invalid >1 range: ${expression}`);
+
+          if (keyInfo.keyPath === '/0/*' || keyInfo.keyPath === '/1/*') {
+            const masterFingerprint = keyInfo.masterFingerprint;
+            if (!masterFingerprint)
+              throw new Error(
+                `Error: ranged descriptor ${expression} without masterFingerprint`
+              );
+            //Group them based on info up to before the change level:
+            const hashKey = `${expandedExpression}-${key}-${masterFingerprint.toString(
+              'hex'
+            )}-${keyInfo.originPath}`;
+
+            const hashValue = (hashMap[hashKey] = hashMap[hashKey] || []);
+            hashValue.push({ expression, keyPath: keyInfo.keyPath });
+          }
+        }
+      }
+
+      //Detect & throw errors.
+      Object.values(hashMap).forEach(descriptorArray => {
+        if (descriptorArray.length === 0)
+          throw new Error(`hashMap created without any valid record`);
+        if (descriptorArray.length > 2)
+          throw new Error(`Error: >2 ranged descriptors for the same wallet`);
+
+        const keyPaths = descriptorArray.map(d => d.keyPath);
+        if (keyPaths.length === 1)
+          if (!keyPaths.includes('/0/*') && !keyPaths.includes('/1/*'))
+            throw new Error(`Error: invalid single keyPath`);
+        if (keyPaths.length === 2)
+          if (!keyPaths.includes('/0/*') || !keyPaths.includes('/1/*'))
+            throw new Error(`Error: unpaired keyPaths`);
+      });
+
+      const wallets = Object.values(hashMap).map(descriptorArray =>
+        descriptorArray.map(d => d.expression)
+      );
+      return wallets;
     }
 
     async discoverScriptPubKey({
@@ -135,24 +226,17 @@ export function DiscoveryFactory(explorer: Explorer) {
       return balance;
     }
     getBalance({
-      expression,
+      expressions,
       network,
       txStatus
     }: {
-      expression: Expression | Array<Expression>;
+      expressions: Expression | Array<Expression>;
       network: Network;
       txStatus: TxStatus;
     }): number {
-      let balance: number = 0;
-      const expressionArray = Array.isArray(expression)
-        ? expression
-        : [expression];
       const networkId = getNetworkId(network);
-      for (const expression of expressionArray) {
-        const utxos = this.getUtxos({ expression, network, txStatus });
-        balance += deriveUtxosBalance(utxos, this.discoveryInfo, networkId);
-      }
-      return balance;
+      const utxos = this.getUtxos({ expressions, network, txStatus });
+      return deriveUtxosBalance(utxos, this.discoveryInfo, networkId);
     }
 
     getUtxosScriptPubKey({
@@ -177,18 +261,18 @@ export function DiscoveryFactory(explorer: Explorer) {
     }
 
     getUtxos({
-      expression,
+      expressions,
       network,
       txStatus
     }: {
-      expression: Expression | Array<Expression>;
+      expressions: Expression | Array<Expression>;
       network: Network;
       txStatus: TxStatus;
     }): Utxo[] {
       const utxos: Utxo[] = [];
-      const expressionArray = Array.isArray(expression)
-        ? expression
-        : [expression];
+      const expressionArray = Array.isArray(expressions)
+        ? expressions
+        : [expressions];
       const networkId = getNetworkId(network);
       const networkInfo = this.discoveryInfo[networkId];
       for (const expression of expressionArray) {
@@ -218,24 +302,24 @@ export function DiscoveryFactory(explorer: Explorer) {
      * resolves when fetched.
      */
     async discover({
-      expression,
+      expressions,
       gapLimit = 20,
       network,
-      onUsedDescriptor,
+      onUsed,
       next
     }: {
-      expression: Expression | Array<Expression>;
+      expressions: Expression | Array<Expression>;
       gapLimit?: number;
       network: Network;
-      onUsedDescriptor?: (expression: Expression) => void;
+      onUsed?: (expressions: Expression | Array<Expression>) => void;
       next?: () => Promise<void>;
     }) {
       let nextPromise;
-      let usedDescriptorNotified = false;
+      let usedExpressionsNotified = false;
 
-      const expressionArray = Array.isArray(expression)
-        ? expression
-        : [expression];
+      const expressionArray = Array.isArray(expressions)
+        ? expressions
+        : [expressions];
       const networkId = getNetworkId(network);
       for (const expression of expressionArray) {
         this.discoveryInfo = produce(this.discoveryInfo, discoveryInfo => {
@@ -272,9 +356,9 @@ export function DiscoveryFactory(explorer: Explorer) {
 
           index++;
 
-          if (used && onUsedDescriptor && usedDescriptorNotified === false) {
-            onUsedDescriptor(expression);
-            usedDescriptorNotified = true;
+          if (used && onUsed && usedExpressionsNotified === false) {
+            onUsed(expressions);
+            usedExpressionsNotified = true;
           }
         }
         this.discoveryInfo = produce(this.discoveryInfo, discoveryInfo => {
@@ -325,33 +409,33 @@ export function DiscoveryFactory(explorer: Explorer) {
       }
     }
 
-    async discoverStandard({
+    async discoverStandardWallets({
       masterNode,
       gapLimit = 20,
       network,
-      onUsedDescriptor
+      onUsed
     }: {
       masterNode: BIP32Interface;
       gapLimit?: number;
       network: Network;
-      onUsedDescriptor?: (expression: Expression) => void;
+      onUsed?: (expressions: Expression | Array<Expression>) => void;
     }) {
       const discoveryTasks = [];
       const { pkhBIP32, shWpkhBIP32, wpkhBIP32 } = scriptExpressions;
       for (const expressionFn of [pkhBIP32, shWpkhBIP32, wpkhBIP32]) {
         let account = 0;
         const next = async () => {
-          const expression = [0, 1].map(change =>
+          const expressions = [0, 1].map(change =>
             expressionFn({ masterNode, network, account, change, index: '*' })
           );
           //console.log('STANDARD', { expression, gapLimit, account });
           account++;
           await this.discover({
-            expression,
+            expressions,
             gapLimit,
             network,
             next,
-            ...(onUsedDescriptor ? { onUsedDescriptor } : {})
+            ...(onUsed ? { onUsed } : {})
           });
         };
         discoveryTasks.push(next());

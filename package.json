@@ -44,7 +44,7 @@
     "dist"
   ],
   "dependencies": {
-    "@bitcoinerlab/descriptors": "^0.2.1",
+    "@bitcoinerlab/descriptors": "^0.3.0",
     "@bitcoinerlab/explorer": "file:../explorer",
     "@bitcoinerlab/secp256k1": "^1.0.2",
     "@types/memoizee": "^0.4.8",

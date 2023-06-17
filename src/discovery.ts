@@ -37,7 +37,7 @@ import {
 
 import { DescriptorsFactory } from '@bitcoinerlab/descriptors';
 import * as secp256k1 from '@bitcoinerlab/secp256k1';
-const { Descriptor } = DescriptorsFactory(secp256k1);
+const { expand } = DescriptorsFactory(secp256k1);
 
 const now = () => Math.floor(Date.now() / 1000);
 
@@ -85,7 +85,7 @@ export function DiscoveryFactory(explorer: Explorer) {
       const expressions = this.getDescritors({ network });
       const expandedDescriptors = expressions.map(expression => ({
         expression,
-        ...new Descriptor({ expression, network }).expand()
+        ...expand({ expression, network })
       }));
       const hashMap: Record<
         string,

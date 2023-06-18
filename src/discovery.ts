@@ -315,6 +315,7 @@ export function DiscoveryFactory(explorer: Explorer) {
       next?: () => Promise<void>;
     }) {
       let nextPromise;
+      let usedExpressions = false;
       let usedExpressionsNotified = false;
 
       const expressionArray = Array.isArray(expressions)
@@ -349,8 +350,10 @@ export function DiscoveryFactory(explorer: Explorer) {
             network
           });
 
-          if (used) gap = 0;
-          else gap++;
+          if (used) {
+            usedExpressions = true;
+            gap = 0;
+          } else gap++;
 
           if (used && next && !nextPromise) nextPromise = next();
 
@@ -372,7 +375,11 @@ export function DiscoveryFactory(explorer: Explorer) {
           descriptorInfo.timeFetched = now();
         });
       }
-      if (nextPromise) await nextPromise;
+
+      const promises = [];
+      if (usedExpressions) promises.push(this.discoverTxs({ network }));
+      if (nextPromise) promises.push(nextPromise);
+      await Promise.all(promises);
     }
 
     /**

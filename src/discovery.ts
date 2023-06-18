@@ -1,8 +1,4 @@
-//TODO: methods still needed: getDescriptors, getWallets
-//  -> getWallets assumes last 2 elements of descriptors are change + index (non hardened) and returns descriptors up to the change path
-//
-//TODO: method getNextDescriptor
-//TODO: do discoverTxs automatically
+//TODO: method getNextScriptPubKey
 //TODO: remove unused functions from explorer (makes it easier manteinance)
 import { produce } from 'immer';
 import { shallowEqualArrays } from 'shallow-equal';
@@ -65,7 +61,7 @@ export function DiscoveryFactory(explorer: Explorer) {
       }
     }
 
-    getDescritors({ network }: { network: Network }): Array<Expression> {
+    getDescriptors({ network }: { network: Network }): Array<Expression> {
       const networkId = getNetworkId(network);
       return Object.keys(this.discoveryInfo[networkId].descriptors);
     }
@@ -82,7 +78,7 @@ export function DiscoveryFactory(explorer: Explorer) {
      */
 
     getWallets({ network }: { network: Network }): Array<Array<Expression>> {
-      const expressions = this.getDescritors({ network });
+      const expressions = this.getDescriptors({ network });
       const expandedDescriptors = expressions.map(expression => ({
         expression,
         ...expand({ expression, network })

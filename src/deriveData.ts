@@ -15,12 +15,24 @@ import {
 import { Network, Transaction, networks } from 'bitcoinjs-lib';
 import { DescriptorsFactory } from '@bitcoinerlab/descriptors';
 import * as secp256k1 from '@bitcoinerlab/secp256k1';
-const { Descriptor } = DescriptorsFactory(secp256k1);
+const { Descriptor, expand } = DescriptorsFactory(secp256k1);
 
-// This is an extension to memoizee that checks function checks whether
-// discoveryInfo has changed and it applies resultEqualityCheck so that the
-// returned array has the same reference (if it is shallow-equal as the
-// previous one). Also it only memoizes one record.
+/**
+ * This function is an extension of memoizee which stores the result of the latest call (cache size one).
+ * If the arguments for the current call are the same as the latest call, it will return the same result.
+ * If the arguments are different, but the returned Array is shallowly equal to the previous one, it still returns the same object.
+ *
+ * @template T - The type of input arguments to the function to be memoized.
+ * @template R - The type of the return value of the function to be memoized.
+ * @param {(...args: T) => R} func - The function to be memoized.
+ * @returns {(...args: T) => R} A memoized version of the input function.
+ *
+ * @example
+ * const memoizedFunc = memoizeOneWithShallowArraysCheck(myFunc);
+ * const result1 = memoizedFunc(arg1, arg2);
+ * const result2 = memoizedFunc(arg1, arg2); // Will return the same object as result1
+ * const result3 = memoizedFunc(arg3, arg4); // If the result is shallowly equal to result1, it will still return the same object as result1
+ */
 function memoizeOneWithShallowArraysCheck<
   T extends unknown[],
   R extends unknown[]
@@ -32,6 +44,46 @@ function memoizeOneWithShallowArraysCheck<
       const newResult = func(...args);
 
       if (lastResult && shallowEqualArrays(lastResult, newResult)) {
+        return lastResult;
+      }
+
+      lastResult = newResult;
+      return newResult;
+    },
+    { max: 1 }
+  );
+}
+
+/**
+ * This function is an extension of memoizee which stores the result of the latest call (cache size one).
+ * If the arguments for the current call are the same as the latest call, it will return the same result.
+ * If the arguments are different, but the returned Object or Array is deeply equal to the previous one, it still returns the same object.
+ * Note: This uses JSON.stringify for deep comparisons which might not be suitable for large objects or arrays.
+ *
+ * @template T - The type of input arguments to the function to be memoized.
+ * @template R - The type of the return value of the function to be memoized.
+ * @param {(...args: T) => R} func - The function to be memoized.
+ * @returns {(...args: T) => R} A memoized version of the input function.
+ *
+ * @example
+ * const memoizedFunc = memoizeOneWithDeepCheck(myFunc);
+ * const result1 = memoizedFunc(arg1, arg2);
+ * const result2 = memoizedFunc(arg1, arg2); // Will return the same object as result1
+ * const result3 = memoizedFunc(arg3, arg4); // If the result is deeply equal to result1, it will still return the same object as result1
+ */
+function memoizeOneWithDeepCheck<T extends unknown[], R extends unknown[]>(
+  func: (...args: T) => R
+) {
+  let lastResult: R | null = null;
+
+  return memoizee(
+    (...args: T) => {
+      const newResult = func(...args);
+
+      if (
+        lastResult &&
+        JSON.stringify(lastResult) === JSON.stringify(newResult)
+      ) {
         return lastResult;
       }
 
@@ -239,6 +291,63 @@ export function deriveScriptPubKeyUtxos(
   return memoizedFunc(discoveryInfo);
 }
 
+const getUtxos = (
+  discoveryInfo: DiscoveryInfo,
+  expressions: Array<Expression> | Expression,
+  networkId: NetworkId,
+  txStatus: TxStatus
+): Array<Utxo> => {
+  const utxos: Utxo[] = [];
+  const expressionArray = Array.isArray(expressions)
+    ? expressions
+    : [expressions];
+  const networkInfo = discoveryInfo[networkId];
+  for (const expression of expressionArray) {
+    const scriptPubKeyInfoRecords =
+      networkInfo.descriptors[expression]?.scriptPubKeyInfoRecords || {};
+    Object.keys(scriptPubKeyInfoRecords)
+      .sort() //Sort it to be deterministic
+      .forEach(indexStr => {
+        const index = indexStr === 'non-ranged' ? indexStr : Number(indexStr);
+        utxos.push(
+          ...deriveScriptPubKeyUtxos(
+            discoveryInfo,
+            networkId,
+            expression,
+            index,
+            txStatus
+          )
+        );
+      });
+  }
+
+  //Deduplucate in case of expression: Array<Expression> with duplicated
+  //expressions
+  const dedupedUtxos = [...new Set(utxos)];
+  return dedupedUtxos;
+};
+
+export function deriveUtxos(
+  discoveryInfo: DiscoveryInfo,
+  expressions: Array<Expression> | Expression,
+  networkId: NetworkId,
+  txStatus: TxStatus
+): Array<Utxo> {
+  // Create a factory function memoized with small search space: NetworkId x TxStatus
+  const memoizedFunc = memoizee(
+    (networkId: NetworkId, txStatus: TxStatus) => {
+      const utxosMapper = (
+        discoveryInfo: DiscoveryInfo,
+        expressions: Expression | Array<Expression>
+      ) => getUtxos(discoveryInfo, expressions, networkId, txStatus);
+
+      return memoizeOneWithShallowArraysCheck(utxosMapper); //Since search space of DiscoveryInfo x Expression is large then: memoizeOne
+    },
+    { primitive: true }
+  );
+  return memoizedFunc(networkId, txStatus)(discoveryInfo, expressions);
+}
+
 export function deriveUtxosBalance(
   utxos: Array<Utxo>,
   discoveryInfo: DiscoveryInfo,
@@ -273,3 +382,135 @@ export function deriveUtxosBalance(
 
   return balance;
 }
+
+function scriptPubKeyHasRecords(
+  scriptPubKeyInfoRecords: Record<DescriptorIndex, ScriptPubKeyInfo> | undefined
+) {
+  if (scriptPubKeyInfoRecords === undefined) return false;
+  for (const prop in scriptPubKeyInfoRecords)
+    if (Object.prototype.hasOwnProperty.call(scriptPubKeyInfoRecords, prop))
+      return true;
+  return false;
+}
+
+const getExpressions = (discoveryInfo: DiscoveryInfo, networkId: NetworkId) => {
+  const descriptors = discoveryInfo[networkId].descriptors;
+  return Object.keys(descriptors)
+    .filter(expression =>
+      scriptPubKeyHasRecords(descriptors[expression]?.scriptPubKeyInfoRecords)
+    )
+    .sort();
+};
+
+/* returns the descriptors expressions that have at least one scriptPubKey that
+ * has been used
+ * It always returns the same Array object per each networkId if the result
+ * never changes*/
+export const deriveExpressions = (
+  discoveryInfo: DiscoveryInfo,
+  networkId: NetworkId
+) => {
+  // Create a (memoized) factory function
+  const memoizedFunc = memoizee(
+    (networkId: NetworkId) => {
+      const expressionMapper = (discoveryInfo: DiscoveryInfo) =>
+        getExpressions(discoveryInfo, networkId);
+      return memoizeOneWithShallowArraysCheck(expressionMapper);
+    },
+    { primitive: true }
+  );
+  return memoizedFunc(networkId)(discoveryInfo);
+};
+
+const getWallets = (expressions: Array<Expression>, networkId: NetworkId) => {
+  const network = getNetwork(networkId);
+  const expandedDescriptors = expressions.map(expression => ({
+    expression,
+    ...expand({ expression, network })
+  }));
+  const hashMap: Record<
+    string,
+    Array<{ expression: string; keyPath: string }>
+  > = {};
+
+  for (const expandedDescriptor of expandedDescriptors) {
+    const { expression, expandedExpression, expansionMap } = expandedDescriptor;
+
+    let wildcardCount = 0;
+    for (const key in expansionMap) {
+      const keyInfo = expansionMap[key];
+      if (!keyInfo)
+        throw new Error(`keyInfo not defined for key ${key} in ${expression}`);
+      if (keyInfo.keyPath?.indexOf('*') !== -1) wildcardCount++;
+      if (wildcardCount > 1)
+        throw new Error(`Error: invalid >1 range: ${expression}`);
+
+      if (keyInfo.keyPath === '/0/*' || keyInfo.keyPath === '/1/*') {
+        const masterFingerprint = keyInfo.masterFingerprint;
+        if (!masterFingerprint)
+          throw new Error(
+            `Error: ranged descriptor ${expression} without masterFingerprint`
+          );
+        //Group them based on info up to before the change level:
+        const hashKey = `${expandedExpression}-${key}-${masterFingerprint.toString(
+          'hex'
+        )}-${keyInfo.originPath}`;
+
+        const hashValue = (hashMap[hashKey] = hashMap[hashKey] || []);
+        hashValue.push({ expression, keyPath: keyInfo.keyPath });
+      }
+    }
+  }
+
+  //Detect & throw errors. Also sort all arrays so that they always return same
+  //(deep) object. This will be convenient when using memoizeOneWithDeepCheck
+  Object.values(hashMap)
+    .sort()
+    .forEach(descriptorArray => {
+      descriptorArray.sort();
+      if (descriptorArray.length === 0)
+        throw new Error(`hashMap created without any valid record`);
+      if (descriptorArray.length > 2)
+        throw new Error(`Error: >2 ranged descriptors for the same wallet`);
+
+      const keyPaths = descriptorArray.map(d => d.keyPath);
+      if (keyPaths.length === 1)
+        if (!keyPaths.includes('/0/*') && !keyPaths.includes('/1/*'))
+          throw new Error(`Error: invalid single keyPath`);
+      if (keyPaths.length === 2)
+        if (!keyPaths.includes('/0/*') || !keyPaths.includes('/1/*'))
+          throw new Error(`Error: unpaired keyPaths`);
+    });
+
+  const wallets = Object.values(hashMap).map(descriptorArray =>
+    descriptorArray.map(d => d.expression)
+  );
+  return wallets;
+};
+
+/** Definition :A Wallet is an array of 1 or 2 descriptor expressions.
+ * Wallet descriptor expressions are those that share the same pattern except
+ * their keyInfo which may return with /0/* and/or /1/*
+ *
+ * Given a ser of expressions, this function returns all wallets.
+ *
+ * The function will return the same Array of Arrays object if the deep object
+ * did not change.
+ *
+ */
+export const deriveWallets = (
+  expressions: Array<Expression>,
+  networkId: NetworkId
+): Array<Array<Expression>> => {
+  // Create a (memoized) factory function
+  const memoizedFunc = memoizee(
+    (networkId: NetworkId) => {
+      const walletMapper = (expressions: Array<Expression>) =>
+        getWallets(expressions, networkId);
+
+      return memoizeOneWithDeepCheck(walletMapper);
+    },
+    { primitive: true }
+  );
+  return memoizedFunc(networkId)(expressions);
+};

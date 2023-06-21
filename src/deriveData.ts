@@ -1,5 +1,8 @@
 //Note that txInfoArray cannot be assumed to be in correct order. See:
 //https://github.com/Blockstream/esplora/issues/165#issuecomment-1584471718
+
+//Note: we use get*() for functions that compute things (not using discoveryInfo)
+//We use derive*() for functions that derive discoveryInfo
 import memoizee from 'memoizee';
 
 import { shallowEqualArrays } from 'shallow-equal';
@@ -291,10 +294,10 @@ export function deriveScriptPubKeyUtxos(
   return memoizedFunc(discoveryInfo);
 }
 
-const getUtxos = (
+const coreDeriveUtxos = (
   discoveryInfo: DiscoveryInfo,
-  expressions: Array<Expression> | Expression,
   networkId: NetworkId,
+  expressions: Array<Expression> | Expression,
   txStatus: TxStatus
 ): Array<Utxo> => {
   const utxos: Utxo[] = [];
@@ -329,17 +332,19 @@ const getUtxos = (
 
 export function deriveUtxos(
   discoveryInfo: DiscoveryInfo,
-  expressions: Array<Expression> | Expression,
   networkId: NetworkId,
+  expressions: Array<Expression> | Expression,
   txStatus: TxStatus
 ): Array<Utxo> {
   // Create a factory function memoized with small search space: NetworkId x TxStatus
+  // memoizedFunc(networkId, txStatus) will always be the same for networkId x txStatus
+  // and so we can call memoizeOneWithShallowArraysCheck with confidence
   const memoizedFunc = memoizee(
     (networkId: NetworkId, txStatus: TxStatus) => {
       const utxosMapper = (
         discoveryInfo: DiscoveryInfo,
         expressions: Expression | Array<Expression>
-      ) => getUtxos(discoveryInfo, expressions, networkId, txStatus);
+      ) => coreDeriveUtxos(discoveryInfo, networkId, expressions, txStatus);
 
       return memoizeOneWithShallowArraysCheck(utxosMapper); //Since search space of DiscoveryInfo x Expression is large then: memoizeOne
     },
@@ -349,9 +354,9 @@ export function deriveUtxos(
 }
 
 export function deriveUtxosBalance(
-  utxos: Array<Utxo>,
   discoveryInfo: DiscoveryInfo,
-  networkId: NetworkId
+  networkId: NetworkId,
+  utxos: Array<Utxo>
 ): number {
   let balance = 0;
 
@@ -393,7 +398,10 @@ function scriptPubKeyHasRecords(
   return false;
 }
 
-const getExpressions = (discoveryInfo: DiscoveryInfo, networkId: NetworkId) => {
+const coreDeriveExpressions = (
+  discoveryInfo: DiscoveryInfo,
+  networkId: NetworkId
+) => {
   const descriptors = discoveryInfo[networkId].descriptors;
   return Object.keys(descriptors)
     .filter(expression =>
@@ -414,7 +422,7 @@ export const deriveExpressions = (
   const memoizedFunc = memoizee(
     (networkId: NetworkId) => {
       const expressionMapper = (discoveryInfo: DiscoveryInfo) =>
-        getExpressions(discoveryInfo, networkId);
+        coreDeriveExpressions(discoveryInfo, networkId);
       return memoizeOneWithShallowArraysCheck(expressionMapper);
     },
     { primitive: true }
@@ -422,7 +430,10 @@ export const deriveExpressions = (
   return memoizedFunc(networkId)(discoveryInfo);
 };
 
-const getWallets = (expressions: Array<Expression>, networkId: NetworkId) => {
+const coreGetWallets = (
+  networkId: NetworkId,
+  expressions: Array<Expression>
+) => {
   const network = getNetwork(networkId);
   const expandedDescriptors = expressions.map(expression => ({
     expression,
@@ -498,15 +509,15 @@ const getWallets = (expressions: Array<Expression>, networkId: NetworkId) => {
  * did not change.
  *
  */
-export const deriveWallets = (
-  expressions: Array<Expression>,
-  networkId: NetworkId
+export const getWallets = (
+  networkId: NetworkId,
+  expressions: Array<Expression>
 ): Array<Array<Expression>> => {
   // Create a (memoized) factory function
   const memoizedFunc = memoizee(
     (networkId: NetworkId) => {
       const walletMapper = (expressions: Array<Expression>) =>
-        getWallets(expressions, networkId);
+        coreGetWallets(networkId, expressions);
 
       return memoizeOneWithDeepCheck(walletMapper);
     },

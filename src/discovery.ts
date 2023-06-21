@@ -7,10 +7,12 @@
 //TODO - done but lacks some adding a test: getWallets and getDescriptors is wrong. It must make sure there are scriptPubKeyInfoRecords
 //TODO - now I have an error with getWallets because if the change has not been used then
 //it won't be returned - Is that acceptable? If so, document.
-//TODO: deriveUtxosBalance is not memoized!!! Yeah... search space is too large to memoize it.
-//TODO: same order for deriveData for discoveryInfo, expressions, networkId
+//TODO: deriveUtxosBalance is not memoized!!! Yeah... search space is too large to memoize it. Can we do better? Maybe have a memoized
+//function for each networkId and then using max: 10 for example? Like assuming
+//  -> In fact the problem is I need deriveExpressionsBalance or deriveBalance... That is the one that needs to be memoized with max: 100 or something
 //TODO: did secondCall go bananas after memoization?!?! :-/ It should be around 4-5 secs if firstcall is around 30secs
 //TODO: Add comments about Search Space on deriveData.ts
+//TODO: go over all memoizeOneWithShallowArraysCheck and see if the returned Arrays are always in same order!
 import { produce } from 'immer';
 import { shallowEqualArrays } from 'shallow-equal';
 
@@ -21,7 +23,7 @@ import {
   deriveUtxos,
   deriveUtxosBalance,
   deriveExpressions,
-  deriveWallets
+  getWallets
 } from './deriveData';
 
 import { scriptExpressions } from '@bitcoinerlab/descriptors';
@@ -105,7 +107,7 @@ export function DiscoveryFactory(explorer: Explorer) {
     getWallets({ network }: { network: Network }): Array<Array<Expression>> {
       const expressions = this.getDescriptors({ network });
       const networkId = getNetworkId(network);
-      return deriveWallets(expressions, networkId);
+      return getWallets(networkId, expressions);
     }
 
     async discoverScriptPubKey({
@@ -193,7 +195,7 @@ export function DiscoveryFactory(explorer: Explorer) {
         network,
         txStatus
       });
-      balance = deriveUtxosBalance(utxos, this.discoveryInfo, networkId);
+      balance = deriveUtxosBalance(this.discoveryInfo, networkId, utxos);
       return balance;
     }
     getBalance({
@@ -207,7 +209,7 @@ export function DiscoveryFactory(explorer: Explorer) {
     }): number {
       const networkId = getNetworkId(network);
       const utxos = this.getUtxos({ expressions, network, txStatus });
-      return deriveUtxosBalance(utxos, this.discoveryInfo, networkId);
+      return deriveUtxosBalance(this.discoveryInfo, networkId, utxos);
     }
 
     getUtxosScriptPubKey({
@@ -241,7 +243,7 @@ export function DiscoveryFactory(explorer: Explorer) {
       txStatus: TxStatus;
     }): Array<Utxo> {
       const networkId = getNetworkId(network);
-      return deriveUtxos(this.discoveryInfo, expressions, networkId, txStatus);
+      return deriveUtxos(this.discoveryInfo, networkId, expressions, txStatus);
     }
 
     /**

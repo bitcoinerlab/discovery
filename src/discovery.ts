@@ -189,15 +189,19 @@ export function DiscoveryFactory(explorer: Explorer) {
     }): number {
       let balance: number = 0;
       const networkId = getNetworkId(network);
-      const utxos = this.getUtxosScriptPubKey({
+      const utxos = deriveScriptPubKeyUtxos(
+        this.discoveryInfo,
+        networkId,
         expression,
         index,
-        network,
         txStatus
-      });
+      );
       balance = deriveUtxosBalance(this.discoveryInfo, networkId, utxos);
       return balance;
     }
+    //TODO: getBalance will have an additional argument: cacheSize, defailt 100
+    //that is the space of expessions that will be cached vs. recomputed all the
+    //time. No, better hardcode it in the constructor. Will be sahred with getUtxos
     getBalance({
       expressions,
       network,
@@ -208,7 +212,12 @@ export function DiscoveryFactory(explorer: Explorer) {
       txStatus: TxStatus;
     }): number {
       const networkId = getNetworkId(network);
-      const utxos = this.getUtxos({ expressions, network, txStatus });
+      const utxos = deriveUtxos(
+        this.discoveryInfo,
+        networkId,
+        expressions,
+        txStatus
+      );
       return deriveUtxosBalance(this.discoveryInfo, networkId, utxos);
     }
 

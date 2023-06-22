@@ -3,6 +3,9 @@
 
 //Note: we use get*() for functions that compute things (not using discoveryInfo)
 //We use derive*() for functions that derive discoveryInfo
+
+//TODO: add constants for max: 100, max: 1000
+//TODO: now rethink the balance* functions
 import memoizee from 'memoizee';
 
 import { shallowEqualArrays } from 'shallow-equal';
@@ -13,7 +16,10 @@ import {
   DescriptorIndex,
   DiscoveryInfo,
   Utxo,
-  TxStatus
+  TxStatus,
+  DescriptorInfo,
+  TxId,
+  TxInfo
 } from './types';
 import { Network, Transaction, networks } from 'bitcoinjs-lib';
 import { DescriptorsFactory } from '@bitcoinerlab/descriptors';
@@ -122,6 +128,7 @@ const getNetwork = (networkId: NetworkId): Network => {
   }
 };
 
+//Unbounded even if search space can be infinite. It's worth it.
 export const getScriptPubKey = memoizee(
   function (
     networkId: NetworkId,
@@ -136,166 +143,186 @@ export const getScriptPubKey = memoizee(
     const scriptPubKey = descriptor.getScriptPubKey();
     return scriptPubKey;
   },
-  { primitive: true }
+  { primitive: true, max: 1000 }
 );
 
-const deriveScriptPubKeyInfo = ({
-  discoveryInfo,
-  networkId,
-  expression,
-  index
-}: {
-  discoveryInfo: DiscoveryInfo;
-  networkId: NetworkId;
-  expression: Expression;
-  index: DescriptorIndex;
-}): ScriptPubKeyInfo => {
-  const scriptPubKeyInfo =
-    discoveryInfo[networkId]?.descriptors[expression]?.scriptPubKeyInfoRecords[
-      index
-    ];
-
-  if (!scriptPubKeyInfo) {
-    throw new Error(
-      `scriptPubKeyInfo does not exist for ${networkId} ${expression} and ${index}`
-    );
-  }
-  return scriptPubKeyInfo;
-};
-
-// memoizee is used here to always get the same selector function
-// for the same tuples of networkId+expression+index
-const txInfoArrayByScriptPubKeyFactory = memoizee(
-  (networkId: NetworkId, expression: Expression, index: DescriptorIndex) => {
-    const txInfoMapper = (discoveryInfo: DiscoveryInfo) => {
-      const scriptPubKeyInfo = deriveScriptPubKeyInfo({
-        discoveryInfo,
-        networkId,
-        expression,
-        index
-      });
-      return scriptPubKeyInfo.txIds.map(txId => {
-        const txInfo = discoveryInfo[networkId].txInfoRecords[txId];
-        if (!txInfo) throw new Error(`txInfo not saved for ${txId}`);
-        return txInfo;
-      });
-    };
-    return memoizeOneWithShallowArraysCheck(txInfoMapper);
-  },
-  //Since all the arguments can be converted toString then it's faster using
-  //primitive: true
-  { primitive: true }
-);
-
-const deriveTxInfoArrayByScriptPubKey = (
-  discoveryInfo: DiscoveryInfo,
+const coreDeriveUtxosByScriptPubKey = (
   networkId: NetworkId,
   expression: Expression,
-  index: DescriptorIndex
-) => {
-  // Use the factory function to create the memoized function
-  const memoizedFunc = txInfoArrayByScriptPubKeyFactory(
-    networkId,
-    expression,
-    index
-  );
-  // Call the created function with discoveryInfo
-  return memoizedFunc(discoveryInfo);
-};
+  index: DescriptorIndex,
+  txInfoArray: Array<TxInfo>,
+  txStatus: TxStatus
+): Array<Utxo> => {
+  const scriptPubKey = getScriptPubKey(networkId, expression, index);
 
-const transactionFromHex = memoizee(Transaction.fromHex, { primitive: true });
+  const allOutputs: Utxo[] = [];
+  const spentOutputs: Utxo[] = [];
 
-// memoizee is used here to always get the same selector function
-// for the same tuples of networkId+expression+index+txStatus
-const deriveScriptPubKeyUtxosFactory = memoizee(
-  (
-    networkId: NetworkId,
-    expression: Expression,
-    index: DescriptorIndex,
-    txStatus: TxStatus
-  ) => {
-    const utxosMapper = (discoveryInfo: DiscoveryInfo) => {
-      const txInfoArray = deriveTxInfoArrayByScriptPubKey(
-        discoveryInfo,
-        networkId,
-        expression,
-        index
-      );
+  for (const txInfo of txInfoArray) {
+    if (
+      txStatus === TxStatus.ALL ||
+      (txStatus === TxStatus.IRREVERSIBLE && txInfo.irreversible) ||
+      (txStatus === TxStatus.CONFIRMED && txInfo.blockHeight !== 0)
+    ) {
+      const txHex = txInfo.txHex;
+      if (!txHex)
+        throw new Error(
+          `txHex not yet retrieved for an element of ${networkId}, ${expression}, ${index}`
+        );
+      const tx = transactionFromHex(txHex);
+      const txId = tx.getId();
 
-      const scriptPubKey = getScriptPubKey(networkId, expression, index);
-
-      const allOutputs: Utxo[] = [];
-      const spentOutputs: Utxo[] = [];
-
-      for (const txInfo of txInfoArray) {
-        if (
-          txStatus === TxStatus.ALL ||
-          (txStatus === TxStatus.IRREVERSIBLE && txInfo.irreversible) ||
-          (txStatus === TxStatus.CONFIRMED && txInfo.blockHeight !== 0)
-        ) {
-          const txHex = txInfo.txHex;
-          if (!txHex)
-            throw new Error(
-              `txHex not yet retrieved for an element of ${networkId}, ${expression}, ${index}`
-            );
-          const tx = transactionFromHex(txHex);
-          const txId = tx.getId();
-
-          for (let vin = 0; vin < tx.ins.length; vin++) {
-            const input = tx.ins[vin];
-            if (!input)
-              throw new Error(`Error: invalid input for ${txId}:${vin}`);
-            //Note we create a new Buffer since reverse() mutates the Buffer
-            const inputId = Buffer.from(input.hash).reverse().toString('hex');
-            const spentOutputKey: Utxo = `${inputId}:${input.index}`;
-            spentOutputs.push(spentOutputKey);
-          }
-
-          for (let vout = 0; vout < tx.outs.length; vout++) {
-            const outputScript = tx.outs[vout]?.script;
-            if (!outputScript)
-              throw new Error(
-                `Error: invalid output script for ${txId}:${vout}`
-              );
-            if (outputScript.equals(scriptPubKey)) {
-              const outputKey: Utxo = `${txId}:${vout}`;
-              allOutputs.push(outputKey);
-            }
-          }
-        }
+      for (let vin = 0; vin < tx.ins.length; vin++) {
+        const input = tx.ins[vin];
+        if (!input) throw new Error(`Error: invalid input for ${txId}:${vin}`);
+        //Note we create a new Buffer since reverse() mutates the Buffer
+        const inputId = Buffer.from(input.hash).reverse().toString('hex');
+        const spentOutputKey: Utxo = `${inputId}:${input.index}`;
+        spentOutputs.push(spentOutputKey);
       }
 
-      // UTXOs are those in allOutputs that are not in spentOutputs
-      const utxos = allOutputs.filter(output => !spentOutputs.includes(output));
+      for (let vout = 0; vout < tx.outs.length; vout++) {
+        const outputScript = tx.outs[vout]?.script;
+        if (!outputScript)
+          throw new Error(`Error: invalid output script for ${txId}:${vout}`);
+        if (outputScript.equals(scriptPubKey)) {
+          const outputKey: Utxo = `${txId}:${vout}`;
+          allOutputs.push(outputKey);
+        }
+      }
+    }
+  }
 
-      return utxos;
-    };
-    return memoizeOneWithShallowArraysCheck(utxosMapper);
+  // UTXOs are those in allOutputs that are not in spentOutputs
+  const utxos = allOutputs.filter(output => !spentOutputs.includes(output));
+
+  return utxos;
+};
+
+const deriveUtxosByScriptPubKeyFactory = memoizee(
+  (
+    expression: Expression,
+    index: DescriptorIndex,
+    networkId: NetworkId,
+    txStatus: TxStatus
+  ) => {
+    // Create one function per each expression x index x networkId x txStatus
+    // As soon as any of the params in coreDeriveUtxosByScriptPubKey changes, it
+    // resets its memory. However, it always returns the same reference if the
+    // resulting array is shallowy-equal
+    const deriveUtxosByScriptPubKey = memoizeOneWithShallowArraysCheck(
+      coreDeriveUtxosByScriptPubKey
+    );
+    return memoizeOneWithShallowArraysCheck(
+      (
+        txInfoRecords: Record<TxId, TxInfo>,
+        descriptors: Record<Expression, DescriptorInfo>
+      ) => {
+        const scriptPubKeyInfoRecords =
+          descriptors[expression]?.scriptPubKeyInfoRecords ||
+          ({} as Record<DescriptorIndex, ScriptPubKeyInfo>);
+        const txIds = scriptPubKeyInfoRecords[index]?.txIds;
+        if (!txIds)
+          throw new Error(`txIds not defined for ${expression} and ${index}`);
+        const txInfoArray = deriveTxInfoArray(
+          txInfoRecords,
+          descriptors,
+          expression,
+          index
+        );
+        return deriveUtxosByScriptPubKey(
+          networkId,
+          expression,
+          index,
+          txInfoArray,
+          txStatus
+        );
+      }
+    );
   },
-  { primitive: true }
+  { primitive: true, max: 1000 }
 );
+const deriveUtxosByScriptPubKey = (
+  txInfoRecords: Record<TxId, TxInfo>,
+  descriptors: Record<Expression, DescriptorInfo>,
+  expression: Expression,
+  index: DescriptorIndex,
+  networkId: NetworkId,
+  txStatus: TxStatus
+) =>
+  deriveUtxosByScriptPubKeyFactory(
+    expression,
+    index,
+    networkId,
+    txStatus
+  )(txInfoRecords, descriptors);
 
-export function deriveScriptPubKeyUtxos(
+export const deriveScriptPubKeyUtxos = (
   discoveryInfo: DiscoveryInfo,
   networkId: NetworkId,
   expression: Expression,
   index: DescriptorIndex,
   txStatus: TxStatus
-): Utxo[] {
-  // Use the factory function to create the memoized function
-  const memoizedFunc = deriveScriptPubKeyUtxosFactory(
-    networkId,
+) => {
+  const descriptors = discoveryInfo[networkId].descriptors;
+  const scriptPubKeyInfoRecords =
+    descriptors[expression]?.scriptPubKeyInfoRecords ||
+    ({} as Record<DescriptorIndex, ScriptPubKeyInfo>);
+  const txIds = scriptPubKeyInfoRecords[index]?.txIds;
+  const txInfoRecords = discoveryInfo[networkId].txInfoRecords;
+  if (!txIds)
+    throw new Error(`txIds not defined for ${expression} and ${index}`);
+  return deriveUtxosByScriptPubKey(
+    txInfoRecords,
+    descriptors,
     expression,
     index,
+    networkId,
     txStatus
   );
+};
 
-  // Call the created function with discoveryInfo
-  return memoizedFunc(discoveryInfo);
-}
+const coreDeriveTxInfoArray = (
+  txIds: Array<TxId>,
+  txInfoRecords: Record<TxId, TxInfo>
+): Array<TxInfo> =>
+  txIds.map(txId => {
+    const txInfo = txInfoRecords[txId];
+    if (!txInfo) throw new Error(`txInfo not saved for ${txId}`);
+    return txInfo;
+  });
 
-const coreDeriveUtxos = (
-  discoveryInfo: DiscoveryInfo,
+const deriveTxInfoArrayFactory = memoizee(
+  (expression: Expression, index: DescriptorIndex) => {
+    return memoizeOneWithShallowArraysCheck(
+      (
+        txInfoRecords: Record<TxId, TxInfo>,
+        descriptors: Record<Expression, DescriptorInfo>
+      ) => {
+        const scriptPubKeyInfoRecords =
+          descriptors[expression]?.scriptPubKeyInfoRecords ||
+          ({} as Record<DescriptorIndex, ScriptPubKeyInfo>);
+        const txIds = scriptPubKeyInfoRecords[index]?.txIds;
+        if (!txIds)
+          throw new Error(`txIds not defined for ${expression} and ${index}`);
+        const txInfoArray = coreDeriveTxInfoArray(txIds, txInfoRecords);
+        return txInfoArray;
+      }
+    );
+  },
+  { primitive: true, max: 1000 }
+);
+
+const deriveTxInfoArray = (
+  txInfoRecords: Record<TxId, TxInfo>,
+  descriptors: Record<Expression, DescriptorInfo>,
+  expression: Expression,
+  index: DescriptorIndex
+) => deriveTxInfoArrayFactory(expression, index)(txInfoRecords, descriptors);
+
+const deriveUtxosByExpressions = (
+  descriptors: Record<Expression, DescriptorInfo>,
+  txInfoRecords: Record<TxId, TxInfo>,
   networkId: NetworkId,
   expressions: Array<Expression> | Expression,
   txStatus: TxStatus
@@ -304,60 +331,105 @@ const coreDeriveUtxos = (
   const expressionArray = Array.isArray(expressions)
     ? expressions
     : [expressions];
-  const networkInfo = discoveryInfo[networkId];
   for (const expression of expressionArray) {
     const scriptPubKeyInfoRecords =
-      networkInfo.descriptors[expression]?.scriptPubKeyInfoRecords || {};
+      descriptors[expression]?.scriptPubKeyInfoRecords ||
+      ({} as Record<DescriptorIndex, ScriptPubKeyInfo>);
     Object.keys(scriptPubKeyInfoRecords)
       .sort() //Sort it to be deterministic
       .forEach(indexStr => {
         const index = indexStr === 'non-ranged' ? indexStr : Number(indexStr);
+        const txIds = scriptPubKeyInfoRecords[index]?.txIds;
+        if (!txIds)
+          throw new Error(`txIds not defined for ${expression} and ${index}`);
         utxos.push(
-          ...deriveScriptPubKeyUtxos(
-            discoveryInfo,
-            networkId,
+          ...deriveUtxosByScriptPubKey(
+            txInfoRecords,
+            descriptors,
             expression,
             index,
+            networkId,
             txStatus
           )
         );
       });
   }
-
-  //Deduplucate in case of expression: Array<Expression> with duplicated
+  //Deduplicate in case of expression: Array<Expression> with duplicated
   //expressions
   const dedupedUtxos = [...new Set(utxos)];
   return dedupedUtxos;
 };
 
-export function deriveUtxos(
+//unbounded memoizee wrt NetworkId x TxStatus is fine since it has a small Search Space
+//however the search space for expressions must be bounded
+const deriveUtxosByExpressionsFactory = memoizee(
+  (networkId: NetworkId, txStatus: TxStatus) =>
+    memoizee(
+      (expressions: Array<Expression> | Expression) =>
+        memoizeOneWithShallowArraysCheck(
+          (
+            txInfoRecords: Record<TxId, TxInfo>,
+            descriptors: Record<Expression, DescriptorInfo>
+          ): Array<Utxo> =>
+            deriveUtxosByExpressions(
+              descriptors,
+              txInfoRecords,
+              networkId,
+              expressions,
+              txStatus
+            )
+        ),
+      { max: 100, primitive: true } //potentially ininite search space. limit to 100 expressions per networkId x txStatus combination
+    ),
+  { primitive: true } //unbounded cache (no max setting) since Search Space is small
+);
+
+export const deriveUtxos = (
   discoveryInfo: DiscoveryInfo,
   networkId: NetworkId,
   expressions: Array<Expression> | Expression,
   txStatus: TxStatus
-): Array<Utxo> {
-  // Create a factory function memoized with small search space: NetworkId x TxStatus
-  // memoizedFunc(networkId, txStatus) will always be the same for networkId x txStatus
-  // and so we can call memoizeOneWithShallowArraysCheck with confidence
-  const memoizedFunc = memoizee(
-    (networkId: NetworkId, txStatus: TxStatus) => {
-      const utxosMapper = (
-        discoveryInfo: DiscoveryInfo,
-        expressions: Expression | Array<Expression>
-      ) => coreDeriveUtxos(discoveryInfo, networkId, expressions, txStatus);
-
-      return memoizeOneWithShallowArraysCheck(utxosMapper); //Since search space of DiscoveryInfo x Expression is large then: memoizeOne
-    },
-    { primitive: true }
+) => {
+  const descriptors = discoveryInfo[networkId].descriptors;
+  const txInfoRecords = discoveryInfo[networkId].txInfoRecords;
+  return deriveUtxosByExpressionsFactory(networkId, txStatus)(expressions)(
+    txInfoRecords,
+    descriptors
   );
-  return memoizedFunc(networkId, txStatus)(discoveryInfo, expressions);
-}
+};
 
-export function deriveUtxosBalance(
+const transactionFromHex = memoizee(Transaction.fromHex, { primitive: true });
+
+export const deriveUtxosBalance = (
   discoveryInfo: DiscoveryInfo,
   networkId: NetworkId,
   utxos: Array<Utxo>
-): number {
+): number => {
+  // Have 1 different function per each networkId (Search Space is not large)
+  const memoizedFunc = memoizee(
+    (networkId: NetworkId) => {
+      const balanceDeriver = (
+        utxos: Array<Utxo>,
+        discoveryInfo: DiscoveryInfo
+      ) => coreDeriveUtxosBalance(discoveryInfo, networkId, utxos);
+      //length: 1 so that we don't use discoveryInfo for the cache. Reasoning:
+      //given the same utxos, even if discoveryInfo changes, the balance will
+      //be still be the same.
+      //max: 1. The potential search space for Utxos is infinite, this max: 1
+      return memoizee(balanceDeriver, { length: 1, max: 1 });
+    },
+    { primitive: true }
+  );
+  return memoizedFunc(networkId)(utxos, discoveryInfo);
+};
+
+//TODO: cache this but no need to check for discoveryInfo changes. only utxos &
+//networkId is important
+export const coreDeriveUtxosBalance = (
+  discoveryInfo: DiscoveryInfo,
+  networkId: NetworkId,
+  utxos: Array<Utxo>
+): number => {
   let balance = 0;
 
   const firstDuplicate = utxos.find((element, index, arr) => {
@@ -386,7 +458,7 @@ export function deriveUtxosBalance(
   }
 
   return balance;
-}
+};
 
 function scriptPubKeyHasRecords(
   scriptPubKeyInfoRecords: Record<DescriptorIndex, ScriptPubKeyInfo> | undefined
@@ -513,7 +585,8 @@ export const getWallets = (
   networkId: NetworkId,
   expressions: Array<Expression>
 ): Array<Array<Expression>> => {
-  // Create a (memoized) factory function
+  // Create a (memoized) factory function to have a different function for each
+  // networkId
   const memoizedFunc = memoizee(
     (networkId: NetworkId) => {
       const walletMapper = (expressions: Array<Expression>) =>

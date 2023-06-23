@@ -35,16 +35,13 @@ import { getNetwork } from './networks';
 //Unbounded even if search space can be infinite. It's worth it.
 //TODO: Add more memoization levels. expression should be bound, networkId and index to different bound levels
 export const getScriptPubKey = memoizee(
-  (
-    networkId: NetworkId,
-    expression: Expression,
-    index: DescriptorIndex
-  ): Buffer => {
-    const network = getNetwork(networkId);
+  (expression: Expression, index: DescriptorIndex): Buffer => {
+    //Note we don't need to pass a network (bitcoin will be default) but we
+    //don't care anyway since the scriptPubKey does not depend on the network
     const descriptor =
       index === 'non-ranged'
-        ? new Descriptor({ expression, network })
-        : new Descriptor({ expression, network, index });
+        ? new Descriptor({ expression })
+        : new Descriptor({ expression, index });
     const scriptPubKey = descriptor.getScriptPubKey();
     return scriptPubKey;
   },
@@ -52,13 +49,12 @@ export const getScriptPubKey = memoizee(
 );
 
 const coreDeriveUtxosByScriptPubKey = (
-  networkId: NetworkId,
   expression: Expression,
   index: DescriptorIndex,
   txInfoArray: Array<TxInfo>,
   txStatus: TxStatus
 ): Array<Utxo> => {
-  const scriptPubKey = getScriptPubKey(networkId, expression, index);
+  const scriptPubKey = getScriptPubKey(expression, index);
 
   const allOutputs: Utxo[] = [];
   const spentOutputs: Utxo[] = [];
@@ -72,7 +68,7 @@ const coreDeriveUtxosByScriptPubKey = (
       const txHex = txInfo.txHex;
       if (!txHex)
         throw new Error(
-          `txHex not yet retrieved for an element of ${networkId}, ${expression}, ${index}`
+          `txHex not yet retrieved for an element of ${expression}, ${index}`
         );
       const tx = transactionFromHex(txHex);
       const txId = tx.getId();
@@ -106,13 +102,8 @@ const coreDeriveUtxosByScriptPubKey = (
 
 //TODO: Add more memoizee levels: networkId x txStatus unbounded, expression: 1000?, index: 1000?
 const deriveUtxosAndBalanceByScriptPubKeyFactory = memoizee(
-  (
-    networkId: NetworkId,
-    expression: Expression,
-    index: DescriptorIndex,
-    txStatus: TxStatus
-  ) => {
-    // Create one function per each expression x index x networkId x txStatus
+  (expression: Expression, index: DescriptorIndex, txStatus: TxStatus) => {
+    // Create one function per each expression x index x txStatus
     // coreDeriveUtxosByScriptPubKey shares all params wrt the parent function
     // except for additional param txInfoArray.
     // As soon as txInfoArray in coreDeriveUtxosByScriptPubKey changes, it
@@ -141,7 +132,6 @@ const deriveUtxosAndBalanceByScriptPubKeyFactory = memoizee(
           index
         );
         const utxos = deriveUtxosByScriptPubKey(
-          networkId,
           expression,
           index,
           txInfoArray,
@@ -164,11 +154,9 @@ export const deriveUtxosAndBalanceByScriptPubKey = (
   descriptors: Record<Expression, DescriptorInfo>,
   expression: Expression,
   index: DescriptorIndex,
-  networkId: NetworkId,
   txStatus: TxStatus
 ) =>
   deriveUtxosAndBalanceByScriptPubKeyFactory(
-    networkId,
     expression,
     index,
     txStatus
@@ -216,7 +204,6 @@ const deriveTxInfoArray = (
 const coreDeriveUtxosByExpressions = (
   descriptors: Record<Expression, DescriptorInfo>,
   txInfoRecords: Record<TxId, TxInfo>,
-  networkId: NetworkId,
   expressions: Array<Expression> | Expression,
   txStatus: TxStatus
 ): Array<Utxo> => {
@@ -241,7 +228,6 @@ const coreDeriveUtxosByExpressions = (
             descriptors,
             expression,
             index,
-            networkId,
             txStatus
           ).utxos
         );
@@ -256,9 +242,9 @@ const coreDeriveUtxosByExpressions = (
 //unbounded memoizee wrt NetworkId x TxStatus is fine since it has a small Search Space
 //however the search space for expressions must be bounded
 //returns {balance, utxos}. The reference of utxos will be kept the same for
-//each tuple of networkId x txStatus x expressions
+//each tuple of txStatus x expressions
 const deriveUtxosAndBalanceByExpressionsFactory = memoizee(
-  (networkId: NetworkId, txStatus: TxStatus) =>
+  (txStatus: TxStatus) =>
     memoizee(
       (expressions: Array<Expression> | Expression) => {
         let lastUtxos: Array<Utxo> | null = null;
@@ -271,7 +257,6 @@ const deriveUtxosAndBalanceByExpressionsFactory = memoizee(
             const utxos = coreDeriveUtxosByExpressions(
               descriptors,
               txInfoRecords,
-              networkId,
               expressions,
               txStatus
             );
@@ -284,19 +269,18 @@ const deriveUtxosAndBalanceByExpressionsFactory = memoizee(
           { max: 1 }
         );
       },
-      { max: 100, primitive: true } //potentially ininite search space. limit to 100 expressions per networkId x txStatus combination
+      { max: 100, primitive: true } //potentially ininite search space. limit to 100 expressions per txStatus combination
     ),
   { primitive: true } //unbounded cache (no max setting) since Search Space is small
 );
 
 export const deriveUtxosAndBalanceByExpressions = (
-  networkId: NetworkId,
   txInfoRecords: Record<TxId, TxInfo>,
   descriptors: Record<Expression, DescriptorInfo>,
   expressions: Array<Expression> | Expression,
   txStatus: TxStatus
 ) =>
-  deriveUtxosAndBalanceByExpressionsFactory(networkId, txStatus)(expressions)(
+  deriveUtxosAndBalanceByExpressionsFactory(txStatus)(expressions)(
     txInfoRecords,
     descriptors
   );
@@ -361,28 +345,8 @@ const coreDeriveExpressions = (
     .sort();
 };
 
-/* returns the descriptors expressions that have at least one scriptPubKey that
- * has been used
- * It always returns the same Array object per each networkId if the result
- * never changes*/
-////TODO: this funciotn is wrong. It's a Factory but cannot return memoizedFunc
-//export const deriveExpressions = (
-//  discoveryInfo: DiscoveryInfo,
-//  networkId: NetworkId
-//) => {
-//  // Create a (memoized) factory function
-//  const memoizedFunc = memoizee(
-//    (networkId: NetworkId) => {
-//      const expressionMapper = (discoveryInfo: DiscoveryInfo) =>
-//        coreDeriveExpressions(discoveryInfo, networkId);
-//      return memoizeOneWithShallowArraysCheck(expressionMapper);
-//    },
-//    { primitive: true }
-//  );
-//  return memoizedFunc(networkId)(discoveryInfo);
-//};
 
-//TODO: refactor rhis not to depend on discoveryInfo
+//TODO: refactor this not to depend on discoveryInfo
 const deriveExpressionsFactory = memoizee(
   (networkId: NetworkId) => {
     return memoizeOneWithShallowArraysCheck((discoveryInfo: DiscoveryInfo) =>
@@ -392,6 +356,10 @@ const deriveExpressionsFactory = memoizee(
   { primitive: true }
 );
 
+/* returns the descriptors expressions that have at least one scriptPubKey that
+ * has been used
+ * It always returns the same Array object per each networkId if the result
+ * never changes*/
 //TODO: redo ths not to depende on discoveryInfo
 export const deriveExpressions = (
   discoveryInfo: DiscoveryInfo,

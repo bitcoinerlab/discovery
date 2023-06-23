@@ -119,7 +119,7 @@ export function DiscoveryFactory(explorer: Explorer) {
       network: Network;
     }): Promise<boolean> {
       const networkId = getNetworkId(network);
-      const scriptPubKey = getScriptPubKey(networkId, expression, index);
+      const scriptPubKey = getScriptPubKey(expression, index);
       //https://electrumx.readthedocs.io/en/latest/protocol-basics.html#script-hashes
       const scriptHash = Buffer.from(crypto.sha256(scriptPubKey))
         .reverse()
@@ -200,7 +200,6 @@ export function DiscoveryFactory(explorer: Explorer) {
         descriptors,
         expression,
         index,
-        networkId,
         txStatus
       );
     }
@@ -218,7 +217,6 @@ export function DiscoveryFactory(explorer: Explorer) {
       const descriptors = this.discoveryInfo[networkId].descriptors;
       const txInfoRecords = this.discoveryInfo[networkId].txInfoRecords;
       return deriveUtxosAndBalanceByExpressions(
-        networkId,
         txInfoRecords,
         descriptors,
         expressions,

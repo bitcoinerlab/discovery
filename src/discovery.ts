@@ -17,14 +17,13 @@ import { produce } from 'immer';
 import { shallowEqualArrays } from 'shallow-equal';
 
 import {
-  getNetworkId,
   getScriptPubKey,
-  deriveScriptPubKeyUtxos,
-  deriveUtxos,
-  deriveUtxosBalance,
+  deriveUtxosAndBalanceByScriptPubKey,
+  deriveUtxosAndBalanceByExpressions,
   deriveExpressions,
   getWallets
 } from './deriveData';
+import { getNetworkId } from './networks';
 
 import { scriptExpressions } from '@bitcoinerlab/descriptors';
 
@@ -176,7 +175,7 @@ export function DiscoveryFactory(explorer: Explorer) {
       return !!txHistoryArray.length;
     }
 
-    getBalanceScriptPubKey({
+    getUtxosByScriptPubKey({
       expression,
       index,
       network,
@@ -186,58 +185,22 @@ export function DiscoveryFactory(explorer: Explorer) {
       index: DescriptorIndex;
       network: Network;
       txStatus: TxStatus;
-    }): number {
-      let balance: number = 0;
+    }): { utxos: Array<Utxo>; balance: number } {
       const networkId = getNetworkId(network);
-      const utxos = deriveScriptPubKeyUtxos(
-        this.discoveryInfo,
-        networkId,
+      const descriptors = this.discoveryInfo[networkId].descriptors;
+      const scriptPubKeyInfoRecords =
+        descriptors[expression]?.scriptPubKeyInfoRecords ||
+        ({} as Record<DescriptorIndex, ScriptPubKeyInfo>);
+      const txIds = scriptPubKeyInfoRecords[index]?.txIds;
+      const txInfoRecords = this.discoveryInfo[networkId].txInfoRecords;
+      if (!txIds)
+        throw new Error(`txIds not defined for ${expression} and ${index}`);
+      return deriveUtxosAndBalanceByScriptPubKey(
+        txInfoRecords,
+        descriptors,
         expression,
         index,
-        txStatus
-      );
-      balance = deriveUtxosBalance(this.discoveryInfo, networkId, utxos);
-      return balance;
-    }
-    //TODO: getBalance will have an additional argument: cacheSize, defailt 100
-    //that is the space of expessions that will be cached vs. recomputed all the
-    //time. No, better hardcode it in the constructor. Will be sahred with getUtxos
-    getBalance({
-      expressions,
-      network,
-      txStatus
-    }: {
-      expressions: Expression | Array<Expression>;
-      network: Network;
-      txStatus: TxStatus;
-    }): number {
-      const networkId = getNetworkId(network);
-      const utxos = deriveUtxos(
-        this.discoveryInfo,
         networkId,
-        expressions,
-        txStatus
-      );
-      return deriveUtxosBalance(this.discoveryInfo, networkId, utxos);
-    }
-
-    getUtxosScriptPubKey({
-      expression,
-      index,
-      network,
-      txStatus
-    }: {
-      expression: Expression;
-      index: DescriptorIndex;
-      network: Network;
-      txStatus: TxStatus;
-    }): Utxo[] {
-      const networkId = getNetworkId(network);
-      return deriveScriptPubKeyUtxos(
-        this.discoveryInfo,
-        networkId,
-        expression,
-        index,
         txStatus
       );
     }
@@ -250,9 +213,17 @@ export function DiscoveryFactory(explorer: Explorer) {
       expressions: Expression | Array<Expression>;
       network: Network;
       txStatus: TxStatus;
-    }): Array<Utxo> {
+    }): { utxos: Array<Utxo>; balance: number } {
       const networkId = getNetworkId(network);
-      return deriveUtxos(this.discoveryInfo, networkId, expressions, txStatus);
+      const descriptors = this.discoveryInfo[networkId].descriptors;
+      const txInfoRecords = this.discoveryInfo[networkId].txInfoRecords;
+      return deriveUtxosAndBalanceByExpressions(
+        networkId,
+        txInfoRecords,
+        descriptors,
+        expressions,
+        txStatus
+      );
     }
 
     /**

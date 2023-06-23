@@ -181,11 +181,11 @@ for (const network of [networks.bitcoin]) {
           console.timeEnd('SecondCall');
 
           for (const expressions of discovery.getWallets({ network })) {
-            const balance = discovery.getBalance({
+            const balance = discovery.getUtxos({
               network,
               expressions,
               txStatus: TxStatus.ALL
-            });
+            }).balance;
             console.log(`Balance for ${expressions}: ${balance}`);
           }
           //console.log(JSON.stringify(discovery.getDiscoveryInfo(), null, 2));

@@ -4,9 +4,15 @@
 //Note: we use get*() for functions that compute things (not using discoveryInfo)
 //We use derive*() for functions that derive discoveryInfo
 
-//TODO: add constants for max: 100, max: 1000
-//TODO: now rethink the balance* functions
+//TODO: add constants for max: 100, max: 1000. also don't use a fixed but
+//MAX_SPACE_PER_EXPRESSION=1000, MAX_SPACE_PER_NETWORK = 3, MAX_SPACE_PER_WALLET=100,... and then multiply
+//The constants above should be configurable through constructor
+//TODO: review all memoizee and see if primitive possible in some that was not pu
 import memoizee from 'memoizee';
+import {
+  memoizeOneWithShallowArraysCheck,
+  memoizeOneWithDeepCheck
+} from './memoizers';
 
 import { shallowEqualArrays } from 'shallow-equal';
 import {
@@ -21,120 +27,20 @@ import {
   TxId,
   TxInfo
 } from './types';
-import { Network, Transaction, networks } from 'bitcoinjs-lib';
+import { Transaction } from 'bitcoinjs-lib';
 import { DescriptorsFactory } from '@bitcoinerlab/descriptors';
 import * as secp256k1 from '@bitcoinerlab/secp256k1';
 const { Descriptor, expand } = DescriptorsFactory(secp256k1);
-
-/**
- * This function is an extension of memoizee which stores the result of the latest call (cache size one).
- * If the arguments for the current call are the same as the latest call, it will return the same result.
- * If the arguments are different, but the returned Array is shallowly equal to the previous one, it still returns the same object.
- *
- * @template T - The type of input arguments to the function to be memoized.
- * @template R - The type of the return value of the function to be memoized.
- * @param {(...args: T) => R} func - The function to be memoized.
- * @returns {(...args: T) => R} A memoized version of the input function.
- *
- * @example
- * const memoizedFunc = memoizeOneWithShallowArraysCheck(myFunc);
- * const result1 = memoizedFunc(arg1, arg2);
- * const result2 = memoizedFunc(arg1, arg2); // Will return the same object as result1
- * const result3 = memoizedFunc(arg3, arg4); // If the result is shallowly equal to result1, it will still return the same object as result1
- */
-function memoizeOneWithShallowArraysCheck<
-  T extends unknown[],
-  R extends unknown[]
->(func: (...args: T) => R) {
-  let lastResult: R | null = null;
-
-  return memoizee(
-    (...args: T) => {
-      const newResult = func(...args);
-
-      if (lastResult && shallowEqualArrays(lastResult, newResult)) {
-        return lastResult;
-      }
-
-      lastResult = newResult;
-      return newResult;
-    },
-    { max: 1 }
-  );
-}
-
-/**
- * This function is an extension of memoizee which stores the result of the latest call (cache size one).
- * If the arguments for the current call are the same as the latest call, it will return the same result.
- * If the arguments are different, but the returned Object or Array is deeply equal to the previous one, it still returns the same object.
- * Note: This uses JSON.stringify for deep comparisons which might not be suitable for large objects or arrays.
- *
- * @template T - The type of input arguments to the function to be memoized.
- * @template R - The type of the return value of the function to be memoized.
- * @param {(...args: T) => R} func - The function to be memoized.
- * @returns {(...args: T) => R} A memoized version of the input function.
- *
- * @example
- * const memoizedFunc = memoizeOneWithDeepCheck(myFunc);
- * const result1 = memoizedFunc(arg1, arg2);
- * const result2 = memoizedFunc(arg1, arg2); // Will return the same object as result1
- * const result3 = memoizedFunc(arg3, arg4); // If the result is deeply equal to result1, it will still return the same object as result1
- */
-function memoizeOneWithDeepCheck<T extends unknown[], R extends unknown[]>(
-  func: (...args: T) => R
-) {
-  let lastResult: R | null = null;
-
-  return memoizee(
-    (...args: T) => {
-      const newResult = func(...args);
-
-      if (
-        lastResult &&
-        JSON.stringify(lastResult) === JSON.stringify(newResult)
-      ) {
-        return lastResult;
-      }
-
-      lastResult = newResult;
-      return newResult;
-    },
-    { max: 1 }
-  );
-}
-
-export const getNetworkId = (network: Network): NetworkId => {
-  if (network.bech32 === 'bc') return NetworkId.BITCOIN;
-  if (network.bech32 === 'bcrt') return NetworkId.REGTEST;
-  if (network.bech32 === 'tb') return NetworkId.TESTNET;
-  if (network.bech32 === 'sb') return NetworkId.SIGNET;
-  throw new Error('Unknown network');
-};
-
-const getNetwork = (networkId: NetworkId): Network => {
-  if (networkId === NetworkId.BITCOIN) {
-    return networks.bitcoin;
-  } else if (networkId === NetworkId.REGTEST) {
-    return networks.regtest;
-  } else if (networkId === NetworkId.TESTNET) {
-    return networks.testnet;
-  } else if (networkId === NetworkId.SIGNET) {
-    //As of June 2023 not part of bitcoinjs-lib
-    if (!('signet' in networks)) {
-      throw new Error('Signet not implemented yet in bitcoinjs-lib');
-    } else return networks.signet as Network;
-  } else {
-    throw new Error(`Invalid networkId ${networkId}`);
-  }
-};
+import { getNetwork } from './networks';
 
 //Unbounded even if search space can be infinite. It's worth it.
+//TODO: Add more memoization levels. expression should be bound, networkId and index to different bound levels
 export const getScriptPubKey = memoizee(
-  function (
+  (
     networkId: NetworkId,
     expression: Expression,
     index: DescriptorIndex
-  ): Buffer {
+  ): Buffer => {
     const network = getNetwork(networkId);
     const descriptor =
       index === 'non-ranged'
@@ -199,21 +105,26 @@ const coreDeriveUtxosByScriptPubKey = (
   return utxos;
 };
 
-const deriveUtxosByScriptPubKeyFactory = memoizee(
+//TODO: Add more memoizee levels: networkId x txStatus unbounded, expression: 1000?, index: 1000?
+const deriveUtxosAndBalanceByScriptPubKeyFactory = memoizee(
   (
+    networkId: NetworkId,
     expression: Expression,
     index: DescriptorIndex,
-    networkId: NetworkId,
     txStatus: TxStatus
   ) => {
     // Create one function per each expression x index x networkId x txStatus
-    // As soon as any of the params in coreDeriveUtxosByScriptPubKey changes, it
-    // resets its memory. However, it always returns the same reference if the
-    // resulting array is shallowy-equal
+    // coreDeriveUtxosByScriptPubKey shares all params wrt the parent function
+    // except for additional param txInfoArray.
+    // As soon as txInfoArray in coreDeriveUtxosByScriptPubKey changes, it
+    // will resets its memory. However, it always returns the same reference if
+    // the resulting array is shallowy-equal:
     const deriveUtxosByScriptPubKey = memoizeOneWithShallowArraysCheck(
       coreDeriveUtxosByScriptPubKey
     );
-    return memoizeOneWithShallowArraysCheck(
+    let lastUtxos: Array<Utxo> | null = null;
+    let lastBalance: number;
+    return memoizee(
       (
         txInfoRecords: Record<TxId, TxInfo>,
         descriptors: Record<Expression, DescriptorInfo>
@@ -230,19 +141,26 @@ const deriveUtxosByScriptPubKeyFactory = memoizee(
           expression,
           index
         );
-        return deriveUtxosByScriptPubKey(
+        const utxos = deriveUtxosByScriptPubKey(
           networkId,
           expression,
           index,
           txInfoArray,
           txStatus
         );
-      }
+        if (lastUtxos && shallowEqualArrays(lastUtxos, utxos))
+          return { utxos: lastUtxos, balance: lastBalance };
+        lastUtxos = utxos;
+        lastBalance = coreDeriveUtxosBalance(txInfoRecords, utxos);
+        return { utxos, balance: lastBalance };
+      },
+      { max: 1 }
     );
   },
   { primitive: true, max: 1000 }
 );
-const deriveUtxosByScriptPubKey = (
+
+export const deriveUtxosAndBalanceByScriptPubKey = (
   txInfoRecords: Record<TxId, TxInfo>,
   descriptors: Record<Expression, DescriptorInfo>,
   expression: Expression,
@@ -250,37 +168,12 @@ const deriveUtxosByScriptPubKey = (
   networkId: NetworkId,
   txStatus: TxStatus
 ) =>
-  deriveUtxosByScriptPubKeyFactory(
+  deriveUtxosAndBalanceByScriptPubKeyFactory(
+    networkId,
     expression,
     index,
-    networkId,
     txStatus
   )(txInfoRecords, descriptors);
-
-export const deriveScriptPubKeyUtxos = (
-  discoveryInfo: DiscoveryInfo,
-  networkId: NetworkId,
-  expression: Expression,
-  index: DescriptorIndex,
-  txStatus: TxStatus
-) => {
-  const descriptors = discoveryInfo[networkId].descriptors;
-  const scriptPubKeyInfoRecords =
-    descriptors[expression]?.scriptPubKeyInfoRecords ||
-    ({} as Record<DescriptorIndex, ScriptPubKeyInfo>);
-  const txIds = scriptPubKeyInfoRecords[index]?.txIds;
-  const txInfoRecords = discoveryInfo[networkId].txInfoRecords;
-  if (!txIds)
-    throw new Error(`txIds not defined for ${expression} and ${index}`);
-  return deriveUtxosByScriptPubKey(
-    txInfoRecords,
-    descriptors,
-    expression,
-    index,
-    networkId,
-    txStatus
-  );
-};
 
 const coreDeriveTxInfoArray = (
   txIds: Array<TxId>,
@@ -292,6 +185,7 @@ const coreDeriveTxInfoArray = (
     return txInfo;
   });
 
+//TODO: add more memoization levels
 const deriveTxInfoArrayFactory = memoizee(
   (expression: Expression, index: DescriptorIndex) => {
     return memoizeOneWithShallowArraysCheck(
@@ -320,7 +214,7 @@ const deriveTxInfoArray = (
   index: DescriptorIndex
 ) => deriveTxInfoArrayFactory(expression, index)(txInfoRecords, descriptors);
 
-const deriveUtxosByExpressions = (
+const coreDeriveUtxosByExpressions = (
   descriptors: Record<Expression, DescriptorInfo>,
   txInfoRecords: Record<TxId, TxInfo>,
   networkId: NetworkId,
@@ -343,14 +237,14 @@ const deriveUtxosByExpressions = (
         if (!txIds)
           throw new Error(`txIds not defined for ${expression} and ${index}`);
         utxos.push(
-          ...deriveUtxosByScriptPubKey(
+          ...deriveUtxosAndBalanceByScriptPubKey(
             txInfoRecords,
             descriptors,
             expression,
             index,
             networkId,
             txStatus
-          )
+          ).utxos
         );
       });
   }
@@ -362,72 +256,59 @@ const deriveUtxosByExpressions = (
 
 //unbounded memoizee wrt NetworkId x TxStatus is fine since it has a small Search Space
 //however the search space for expressions must be bounded
-const deriveUtxosByExpressionsFactory = memoizee(
+//returns {balance, utxos}. The reference of utxos will be kept the same for
+//each tuple of networkId x txStatus x expressions
+const deriveUtxosAndBalanceByExpressionsFactory = memoizee(
   (networkId: NetworkId, txStatus: TxStatus) =>
     memoizee(
-      (expressions: Array<Expression> | Expression) =>
-        memoizeOneWithShallowArraysCheck(
+      (expressions: Array<Expression> | Expression) => {
+        let lastUtxos: Array<Utxo> | null = null;
+        let lastBalance: number;
+        return memoizee(
           (
             txInfoRecords: Record<TxId, TxInfo>,
             descriptors: Record<Expression, DescriptorInfo>
-          ): Array<Utxo> =>
-            deriveUtxosByExpressions(
+          ) => {
+            const utxos = coreDeriveUtxosByExpressions(
               descriptors,
               txInfoRecords,
               networkId,
               expressions,
               txStatus
-            )
-        ),
+            );
+            if (lastUtxos && shallowEqualArrays(lastUtxos, utxos))
+              return { utxos: lastUtxos, balance: lastBalance };
+            lastUtxos = utxos;
+            lastBalance = coreDeriveUtxosBalance(txInfoRecords, utxos);
+            return { utxos, balance: lastBalance };
+          },
+          { max: 1 }
+        );
+      },
       { max: 100, primitive: true } //potentially ininite search space. limit to 100 expressions per networkId x txStatus combination
     ),
   { primitive: true } //unbounded cache (no max setting) since Search Space is small
 );
 
-export const deriveUtxos = (
-  discoveryInfo: DiscoveryInfo,
+export const deriveUtxosAndBalanceByExpressions = (
   networkId: NetworkId,
+  txInfoRecords: Record<TxId, TxInfo>,
+  descriptors: Record<Expression, DescriptorInfo>,
   expressions: Array<Expression> | Expression,
   txStatus: TxStatus
-) => {
-  const descriptors = discoveryInfo[networkId].descriptors;
-  const txInfoRecords = discoveryInfo[networkId].txInfoRecords;
-  return deriveUtxosByExpressionsFactory(networkId, txStatus)(expressions)(
+) =>
+  deriveUtxosAndBalanceByExpressionsFactory(networkId, txStatus)(expressions)(
     txInfoRecords,
     descriptors
   );
-};
 
-const transactionFromHex = memoizee(Transaction.fromHex, { primitive: true });
+const transactionFromHex = memoizee(Transaction.fromHex, {
+  primitive: true,
+  max: 1000
+});
 
-export const deriveUtxosBalance = (
-  discoveryInfo: DiscoveryInfo,
-  networkId: NetworkId,
-  utxos: Array<Utxo>
-): number => {
-  // Have 1 different function per each networkId (Search Space is not large)
-  const memoizedFunc = memoizee(
-    (networkId: NetworkId) => {
-      const balanceDeriver = (
-        utxos: Array<Utxo>,
-        discoveryInfo: DiscoveryInfo
-      ) => coreDeriveUtxosBalance(discoveryInfo, networkId, utxos);
-      //length: 1 so that we don't use discoveryInfo for the cache. Reasoning:
-      //given the same utxos, even if discoveryInfo changes, the balance will
-      //be still be the same.
-      //max: 1. The potential search space for Utxos is infinite, this max: 1
-      return memoizee(balanceDeriver, { length: 1, max: 1 });
-    },
-    { primitive: true }
-  );
-  return memoizedFunc(networkId)(utxos, discoveryInfo);
-};
-
-//TODO: cache this but no need to check for discoveryInfo changes. only utxos &
-//networkId is important
-export const coreDeriveUtxosBalance = (
-  discoveryInfo: DiscoveryInfo,
-  networkId: NetworkId,
+const coreDeriveUtxosBalance = (
+  txInfoRecords: Record<TxId, TxInfo>,
   utxos: Array<Utxo>
 ): number => {
   let balance = 0;
@@ -444,19 +325,17 @@ export const coreDeriveUtxosBalance = (
       throw new Error(`Undefined txId or vout for UTXO: ${utxo}`);
     const vout = parseInt(voutStr);
 
-    const txInfo = discoveryInfo[networkId].txInfoRecords[txId];
+    const txInfo = txInfoRecords[txId];
     if (!txInfo)
       throw new Error(`txInfo not saved for ${txId}, vout:${vout} - ${utxo}`);
     const txHex = txInfo.txHex;
-    if (!txHex)
-      throw new Error(`txHex not yet retrieved for an element of ${networkId}`);
+    if (!txHex) throw new Error(`txHex not yet retrieved for ${txId}`);
     const tx = transactionFromHex(txHex);
     const output = tx.outs[vout];
     if (!output) throw new Error(`Error: invalid output for ${txId}:${vout}`);
     const outputValue = output.value; // value in satoshis
     balance += outputValue;
   }
-
   return balance;
 };
 
@@ -486,6 +365,7 @@ const coreDeriveExpressions = (
  * has been used
  * It always returns the same Array object per each networkId if the result
  * never changes*/
+//TODO: this funciotn is wrong. It's a Factory but cannot return memoizedFunc
 export const deriveExpressions = (
   discoveryInfo: DiscoveryInfo,
   networkId: NetworkId
@@ -581,6 +461,7 @@ const coreGetWallets = (
  * did not change.
  *
  */
+//TODO: this function is badly implemented!!! cannot return memoizedFunc
 export const getWallets = (
   networkId: NetworkId,
   expressions: Array<Expression>

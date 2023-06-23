@@ -17,7 +17,7 @@ import { produce } from 'immer';
 import { shallowEqualArrays } from 'shallow-equal';
 
 import {
-  getScriptPubKey,
+  deriveScriptPubKey,
   deriveUtxosAndBalanceByScriptPubKey,
   deriveUtxosAndBalanceByExpressions,
   deriveExpressions,
@@ -119,7 +119,7 @@ export function DiscoveryFactory(explorer: Explorer) {
       network: Network;
     }): Promise<boolean> {
       const networkId = getNetworkId(network);
-      const scriptPubKey = getScriptPubKey(expression, index);
+      const scriptPubKey = deriveScriptPubKey(expression, index);
       //https://electrumx.readthedocs.io/en/latest/protocol-basics.html#script-hashes
       const scriptHash = Buffer.from(crypto.sha256(scriptPubKey))
         .reverse()

@@ -21,7 +21,7 @@ import {
   deriveUtxosAndBalanceByScriptPubKey,
   deriveUtxosAndBalanceByExpressions,
   deriveExpressions,
-  getWallets
+  deriveWallets
 } from './deriveData';
 import { getNetworkId } from './networks';
 
@@ -106,7 +106,7 @@ export function DiscoveryFactory(explorer: Explorer) {
     getWallets({ network }: { network: Network }): Array<Array<Expression>> {
       const expressions = this.getDescriptors({ network });
       const networkId = getNetworkId(network);
-      return getWallets(networkId, expressions);
+      return deriveWallets(networkId, expressions);
     }
 
     async discoverScriptPubKey({

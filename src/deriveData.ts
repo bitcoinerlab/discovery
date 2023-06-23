@@ -8,12 +8,11 @@
 //MAX_SPACE_PER_EXPRESSION=1000, MAX_SPACE_PER_NETWORK = 3, MAX_SPACE_PER_WALLET=100,... and then multiply
 //The constants above should be configurable through constructor
 //TODO: review all memoizee and see if primitive possible in some that was not pu
+//TODO: The network is not relevant for getScriptPubKey. Using this fact simplifies
+//greatly everything
+const MAX_EXPRESSIONS_PER_NETWORK = 1000;
 import memoizee from 'memoizee';
-import {
-  memoizeOneWithShallowArraysCheck,
-  memoizeOneWithDeepCheck
-} from './memoizers';
-
+import { memoizeOneWithShallowArraysCheck } from './memoizers';
 import { shallowEqualArrays } from 'shallow-equal';
 import {
   NetworkId,
@@ -349,6 +348,7 @@ function scriptPubKeyHasRecords(
   return false;
 }
 
+//TODO: redo this not to depend on discoveryInfo
 const coreDeriveExpressions = (
   discoveryInfo: DiscoveryInfo,
   networkId: NetworkId
@@ -365,27 +365,43 @@ const coreDeriveExpressions = (
  * has been used
  * It always returns the same Array object per each networkId if the result
  * never changes*/
-//TODO: this funciotn is wrong. It's a Factory but cannot return memoizedFunc
+////TODO: this funciotn is wrong. It's a Factory but cannot return memoizedFunc
+//export const deriveExpressions = (
+//  discoveryInfo: DiscoveryInfo,
+//  networkId: NetworkId
+//) => {
+//  // Create a (memoized) factory function
+//  const memoizedFunc = memoizee(
+//    (networkId: NetworkId) => {
+//      const expressionMapper = (discoveryInfo: DiscoveryInfo) =>
+//        coreDeriveExpressions(discoveryInfo, networkId);
+//      return memoizeOneWithShallowArraysCheck(expressionMapper);
+//    },
+//    { primitive: true }
+//  );
+//  return memoizedFunc(networkId)(discoveryInfo);
+//};
+
+//TODO: refactor rhis not to depend on discoveryInfo
+const deriveExpressionsFactory = memoizee(
+  (networkId: NetworkId) => {
+    return memoizeOneWithShallowArraysCheck((discoveryInfo: DiscoveryInfo) =>
+      coreDeriveExpressions(discoveryInfo, networkId)
+    );
+  },
+  { primitive: true }
+);
+
+//TODO: redo ths not to depende on discoveryInfo
 export const deriveExpressions = (
   discoveryInfo: DiscoveryInfo,
   networkId: NetworkId
-) => {
-  // Create a (memoized) factory function
-  const memoizedFunc = memoizee(
-    (networkId: NetworkId) => {
-      const expressionMapper = (discoveryInfo: DiscoveryInfo) =>
-        coreDeriveExpressions(discoveryInfo, networkId);
-      return memoizeOneWithShallowArraysCheck(expressionMapper);
-    },
-    { primitive: true }
-  );
-  return memoizedFunc(networkId)(discoveryInfo);
-};
+) => deriveExpressionsFactory(networkId)(discoveryInfo);
 
-const coreGetWallets = (
+const coreDeriveWallets = (
   networkId: NetworkId,
   expressions: Array<Expression>
-) => {
+): Array<Array<Expression>> => {
   const network = getNetwork(networkId);
   const expandedDescriptors = expressions.map(expression => ({
     expression,
@@ -461,21 +477,17 @@ const coreGetWallets = (
  * did not change.
  *
  */
-//TODO: this function is badly implemented!!! cannot return memoizedFunc
-export const getWallets = (
+const deriveWalletsFactory = memoizee(
+  (networkId: NetworkId) =>
+    memoizee(
+      (expressions: Array<Expression>) =>
+        coreDeriveWallets(networkId, expressions),
+      { primitive: true, max: MAX_EXPRESSIONS_PER_NETWORK }
+    ),
+  { primitive: true }
+);
+
+export const deriveWallets = (
   networkId: NetworkId,
   expressions: Array<Expression>
-): Array<Array<Expression>> => {
-  // Create a (memoized) factory function to have a different function for each
-  // networkId
-  const memoizedFunc = memoizee(
-    (networkId: NetworkId) => {
-      const walletMapper = (expressions: Array<Expression>) =>
-        coreGetWallets(networkId, expressions);
-
-      return memoizeOneWithDeepCheck(walletMapper);
-    },
-    { primitive: true }
-  );
-  return memoizedFunc(networkId)(expressions);
-};
+) => deriveWalletsFactory(networkId)(expressions);

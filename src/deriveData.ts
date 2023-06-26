@@ -357,7 +357,6 @@ function scriptPubKeyHasRecords(
   return false;
 }
 
-//TODO: redo this not to depend on discoveryInfo
 const coreDeriveExpressions = (
   discoveryInfo: DiscoveryInfo,
   networkId: NetworkId
@@ -370,7 +369,6 @@ const coreDeriveExpressions = (
     .sort();
 };
 
-//TODO: refactor this not to depend on discoveryInfo
 const deriveExpressionsFactory = memoizee(
   (networkId: NetworkId) => {
     return memoizeOneWithShallowArraysCheck((discoveryInfo: DiscoveryInfo) =>
@@ -380,104 +378,65 @@ const deriveExpressionsFactory = memoizee(
   { primitive: true }
 );
 
-/* returns the descriptors expressions that have at least one scriptPubKey that
- * has been used
- * It always returns the same Array object per each networkId if the result
- * never changes*/
-//TODO: redo ths not to depende on discoveryInfo
+/**
+ * Extracts and returns descriptor expressions that are associated with at
+ * least one utilized scriptPubKey from the discovery information. The
+ * function is optimized to maintain and return the same array object for
+ * each unique networkId if the resulting expressions did not change.
+ * This helps to avoid unnecessary data processing and memory usage.
+ *
+ * @param {DiscoveryInfo} discoveryInfo - Information regarding discovery.
+ * @param {NetworkId} networkId - The network identifier.
+ * @returns {Array<Expression>} - Descriptor expressions.
+ */
 export const deriveExpressions = (
   discoveryInfo: DiscoveryInfo,
   networkId: NetworkId
 ) => deriveExpressionsFactory(networkId)(discoveryInfo);
 
+/**
+ * Derives the wallets from a set of expressions.
+ * Descriptor expressions of a wallet share the same pattern, except for
+ * their keyInfo, which can end with either /0/* or /1/*.
+ * A Wallet is represented by its external descriptor.
+ *
+ * @param {NetworkId} networkId
+ * @param {Array<Expression>} expressions
+ * @returns {Array<Array<Expression>>}- Returns an array of wallets derived from
+ * the given expressions.
+ */
 const coreDeriveWallets = (
   networkId: NetworkId,
   expressions: Array<Expression>
-): Array<Array<Expression>> => {
+): Array<Expression> => {
+  const wallets: Array<Expression> = [];
+
   const network = getNetwork(networkId);
   const expandedDescriptors = expressions.map(expression => ({
     expression,
     ...expand({ expression, network })
   }));
-  const hashMap: Record<
-    string,
-    Array<{ expression: string; keyPath: string }>
-  > = {};
-
-  for (const expandedDescriptor of expandedDescriptors) {
-    const { expression, expandedExpression, expansionMap } = expandedDescriptor;
-
-    let wildcardCount = 0;
+  for (const { expression, expansionMap } of expandedDescriptors) {
     for (const key in expansionMap) {
       const keyInfo = expansionMap[key];
       if (!keyInfo)
         throw new Error(`keyInfo not defined for key ${key} in ${expression}`);
-      if (keyInfo.keyPath?.indexOf('*') !== -1) wildcardCount++;
-      if (wildcardCount > 1)
-        throw new Error(`Error: invalid >1 range: ${expression}`);
 
       if (keyInfo.keyPath === '/0/*' || keyInfo.keyPath === '/1/*') {
-        const masterFingerprint = keyInfo.masterFingerprint;
-        if (!masterFingerprint)
-          throw new Error(
-            `Error: ranged descriptor ${expression} without masterFingerprint`
-          );
-        //Group them based on info up to before the change level:
-        const hashKey = `${expandedExpression}-${key}-${masterFingerprint.toString(
-          'hex'
-        )}-${keyInfo.originPath}`;
-
-        const hashValue = (hashMap[hashKey] = hashMap[hashKey] || []);
-        hashValue.push({ expression, keyPath: keyInfo.keyPath });
+        const wallet = expression.replace(/\/1\/\*/g, '/0/*');
+        if (!wallets.includes(wallet)) wallets.push(wallet);
       }
     }
   }
-
-  //Detect & throw errors. Also sort all arrays so that they always return same
-  //(deep) object. This will be convenient when using memoizeOneWithDeepCheck
-  Object.values(hashMap)
-    .sort()
-    .forEach(descriptorArray => {
-      descriptorArray.sort();
-      if (descriptorArray.length === 0)
-        throw new Error(`hashMap created without any valid record`);
-      if (descriptorArray.length > 2)
-        throw new Error(`Error: >2 ranged descriptors for the same wallet`);
-
-      const keyPaths = descriptorArray.map(d => d.keyPath);
-      if (keyPaths.length === 1)
-        if (!keyPaths.includes('/0/*') && !keyPaths.includes('/1/*'))
-          throw new Error(`Error: invalid single keyPath`);
-      if (keyPaths.length === 2)
-        if (!keyPaths.includes('/0/*') || !keyPaths.includes('/1/*'))
-          throw new Error(`Error: unpaired keyPaths`);
-    });
-
-  const wallets = Object.values(hashMap).map(descriptorArray =>
-    descriptorArray.map(d => d.expression)
-  );
-  return wallets;
+  return wallets.sort(); //So it's deterministic
 };
 
-/** Definition :A Wallet is an array of 1 or 2 descriptor expressions.
- * Wallet descriptor expressions are those that share the same pattern except
- * their keyInfo which may return with /0/* and/or /1/*
- *
- * Given a ser of expressions, this function returns all wallets.
- *
- * The function will return the same Array of Arrays object if the deep object
- * did not change.
- *
- */
-//TODO: unbound this??? if I always want the same reference?!?!?!
-//TODO: this returns an array. this should check the shallow result
-const deriveWalletsFactory = memoizee(
-  (networkId: NetworkId) =>
-    memoizee(
-      (expressions: Array<Expression>) =>
-        coreDeriveWallets(networkId, expressions),
-      { primitive: true, max: EXPRESSIONS_PER_NETWORK_CACHE }
-    ),
+export const deriveWalletsFactory = memoizee(
+  (networkId: NetworkId) => {
+    return memoizeOneWithShallowArraysCheck((expressions: Array<Expression>) =>
+      coreDeriveWallets(networkId, expressions)
+    );
+  },
   { primitive: true }
 );
 

@@ -1,3 +1,7 @@
+//TODO: remove the checkSum of the expressions when storing them. Normalize them somehow, using lowerlcase, whatever
+//TODO: The function expand in descriptors should also take the checksum as input and put it in the expansion - then remove the loggedExpression stuff which is just weird
+//  -> The thing is that in Descriptor we evaluate first and this is the reason that the checksum is removed. HOwever, the process can now be reverted. First expand (including wildcard) and then evaluate!
+//TODO: Check for duplicates of scriptPubKey... Imagine expressions using uppercase/lowecase of the same or equivalent ones using xpub and wif for the same scriptPubKey for example...
 //TODO: method getNextScriptPubKey
 //TODO: getWallets + getDescriptors should be renamed to deriveWallets + deriveDescriptors
 //and return the same reference if they don't change.
@@ -13,6 +17,13 @@
 //TODO: did secondCall go bananas after memoization?!?! :-/ It should be around 4-5 secs if firstcall is around 30secs
 //TODO: Add comments about Search Space on deriveData.ts
 //TODO: go over all memoizeOneWithShallowArraysCheck and see if the returned Arrays are always in same order!
+//TODO: save the canonicalExpression as the index in discoveryInfo. This way we
+//also prevent duplicates.
+//  -> Problem if the user keeps using the non-canonical expressions? are caches
+//  useful? Probably they but we must keep converting them any time they must
+//  match discoveryInfo.
+//      -> Also getWallets and getDescriptors return the canonical ones
+//  -> What happens if a descriptor is set to be discoevered twice?
 import { produce } from 'immer';
 import { shallowEqualArrays } from 'shallow-equal';
 
@@ -91,21 +102,19 @@ export function DiscoveryFactory(explorer: Explorer) {
 
     /**
      * Retrieves wallet descriptors grouped by wallets. A wallet is identified
-     * by descriptors with the same script type and a single ranged key
-     * expression for a key that shares the same fingerprint and origin
-     * path. The key expressions should be either /0/* or /1/*.
+     * by its external descriptor `keyPath = /0/*`.
      *
      * @param {Network} network - The network associated with the descriptors.
      *
-     * @returns {Array<Array<Expression>>} - An array of wallets, each represented
-     * as an array of descriptor expressions. Note on mutability (useful in
+     * @returns {Array<Expression>} - An array of wallets, each represented
+     * as its external descriptor expression. Note on mutability (useful in
      * environments like React): This method will maintain the same object
-     * reference per networkId if the deep structure of the returned object remains
-     * unchanged.
+     * reference per networkId if the deep structure of the returned object
+     * remains unchanged.
      */
-    getWallets({ network }: { network: Network }): Array<Array<Expression>> {
-      const expressions = this.getDescriptors({ network });
+    getWallets({ network }: { network: Network }): Array<Expression> {
       const networkId = getNetworkId(network);
+      const expressions = deriveExpressions(this.discoveryInfo, networkId);
       return deriveWallets(networkId, expressions);
     }
 
@@ -118,6 +127,7 @@ export function DiscoveryFactory(explorer: Explorer) {
       index: DescriptorIndex;
       network: Network;
     }): Promise<boolean> {
+      //TODO: check if expression is not canonical.
       const networkId = getNetworkId(network);
       const scriptPubKey = deriveScriptPubKey(expression, index);
       //https://electrumx.readthedocs.io/en/latest/protocol-basics.html#script-hashes
@@ -186,6 +196,7 @@ export function DiscoveryFactory(explorer: Explorer) {
       network: Network;
       txStatus: TxStatus;
     }): { utxos: Array<Utxo>; balance: number } {
+      //TODO: check if expression is not canonical.
       const networkId = getNetworkId(network);
       const descriptors = this.discoveryInfo[networkId].descriptors;
       const scriptPubKeyInfoRecords =
@@ -213,6 +224,7 @@ export function DiscoveryFactory(explorer: Explorer) {
       network: Network;
       txStatus: TxStatus;
     }): { utxos: Array<Utxo>; balance: number } {
+      //TODO: only if expressions are not canonical, rewrite them.
       const networkId = getNetworkId(network);
       const descriptors = this.discoveryInfo[networkId].descriptors;
       const txInfoRecords = this.discoveryInfo[networkId].txInfoRecords;
@@ -235,6 +247,7 @@ export function DiscoveryFactory(explorer: Explorer) {
       onUsed,
       next
     }: {
+      //TODO: only if expressions are not canonical, rewrite them.
       expressions: Expression | Array<Expression>;
       gapLimit?: number;
       network: Network;

@@ -1,3 +1,7 @@
+// Copyright (c) 2023 Jose-Luis Landabaso - https://bitcoinerlab.com
+// Distributed under the MIT software license
+
+//TODO: TEST duplicates of scriptPubKey... Imagine expressions using uppercase/lowecase of the same or equivalent ones using xpub and wif for the same scriptPubKey for example...
 //TODO: Test that The sorting is the same for esplora and electrum with older
 //txs at the beginning of the array and mempool ones at the end
 //TODO: Test error if getUtxos without first discoverTxs or discover
@@ -18,19 +22,23 @@ import {
 } from '@bitcoinerlab/explorer';
 const { Descriptor, BIP32 } = descriptors.DescriptorsFactory(secp256k1);
 const regtestUtils = new RegtestUtils();
-import { DiscoveryFactory, TxStatus } from '../../dist';
+import { DiscoveryFactory, TxStatus, Wallet } from '../../dist';
 
 import { fixtures } from '../fixtures/discovery';
 const network = networks.regtest;
 
 const regtestTest = false;
 
-const onUsed = (expressions: string | Array<string>) => {
-  console.log(`TRACE - onUsed(${expressions}`);
+const onWalletUsed = (wallet: Wallet) => {
+  console.log(`TRACE - onWalletUsed(${wallet}`);
 };
 
 if (regtestTest) {
-  const explorer = new EsploraExplorer({ url: ESPLORA_LOCAL_REGTEST_URL });
+  const explorer = new EsploraExplorer({
+    url: ESPLORA_LOCAL_REGTEST_URL,
+    irrevConfThresh: 3,
+    maxTxPerScriptPubKey: 1000
+  });
   const { Discovery } = DiscoveryFactory(explorer);
   describe('Discovery on regtest', () => {
     test(`Fund`, async () => {
@@ -96,7 +104,7 @@ if (regtestTest) {
         await discovery.discoverStandardWallets({
           masterNode,
           network,
-          onUsed
+          onWalletUsed
         });
         //console.log(
         //  JSON.stringify(
@@ -121,19 +129,19 @@ for (const network of [networks.bitcoin]) {
     //  url:
     //    network === networks.testnet
     //      ? 'https://blockstream.info/testnet/api'
-    //      : 'https://blockstream.info/api'
+    //      : 'https://blockstream.info/api', irrevConfThresh: 3, maxTxPerScriptPubKey: 1000
     //})
     //new ElectrumExplorer({
     //  host: 'electrum.bitaroo.net',
     //  port: 50002,
     //  protocol: 'ssl',
-    //  network
+    //  network, irrevConfThresh: 3, maxTxPerScriptPubKey: 1000
     //})
     //new ElectrumExplorer({
     //  host: 'electrum.blockstream.info',
     //  port: 50002,
     //  protocol: 'ssl',
-    //  network
+    //  network, irrevConfThresh: 3, maxTxPerScriptPubKey: 1000
     //})
     new ElectrumExplorer({
       //host: 'btc.lastingcoin.net', //time out on bitcoind
@@ -147,7 +155,9 @@ for (const network of [networks.bitcoin]) {
       //port: 50002,
       port: 443,
       protocol: 'ssl',
-      network
+      network,
+      irrevConfThresh: 3,
+      maxTxPerScriptPubKey: 1000
     })
   ])
     describe(`Discovery on ${network.bech32}`, () => {
@@ -169,24 +179,50 @@ for (const network of [networks.bitcoin]) {
           await discovery.discoverStandardWallets({
             masterNode,
             network,
-            onUsed
+            onWalletUsed
           });
           console.timeEnd('FirstCall');
           console.time('SecondCall');
           await discovery.discoverStandardWallets({
             masterNode,
             network,
-            onUsed
+            onWalletUsed
           });
           console.timeEnd('SecondCall');
 
-          for (const expressions of discovery.getWallets({ network })) {
-            const balance = discovery.getUtxos({
+          for (const wallet of discovery.getWallets({ network })) {
+            console.log(
+              `Next external index: ${discovery.getNextIndex({
+                wallet,
+                network,
+                isExternal: true,
+                txStatus: TxStatus.ALL
+              })}`
+            );
+            console.log(
+              `Next internal index: ${discovery.getNextIndex({
+                wallet,
+                network,
+                isExternal: false,
+                txStatus: TxStatus.ALL
+              })}`
+            );
+            const expressions = discovery.getWalletExpressions({ wallet });
+            const { balance } = discovery.getUtxos({
               network,
               expressions,
               txStatus: TxStatus.ALL
-            }).balance;
+            });
             console.log(`Balance for ${expressions}: ${balance}`);
+            const txHistory = discovery.getHistory({ expressions, network });
+            console.log(
+              `Number of txs for ${expressions}: ${txHistory.length}`
+            );
+            //console.log(
+            //  `Transaction for first transaction of ${expressions}: ${discovery.getTxHex(
+            //    { network, tx: utxos[0] }
+            //  )}`
+            //);
           }
           //console.log(JSON.stringify(discovery.getDiscoveryInfo(), null, 2));
         },

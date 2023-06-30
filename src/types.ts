@@ -1,3 +1,5 @@
+// Copyright (c) 2023 Jose-Luis Landabaso - https://bitcoinerlab.com
+// Distributed under the MIT software license
 // Example of a discoveryInfo object:
 // const discoveryInfo = {
 //   ['TESTNET']: /*NetworkInfo*/ {
@@ -57,6 +59,7 @@ export type ScriptPubKeyInfo = {
  * this descriptor as non-ranged.
  */
 export type Expression = string;
+export type Wallet = Expression;
 export type DescriptorIndex = number | 'non-ranged';
 
 /**

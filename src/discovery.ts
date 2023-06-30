@@ -637,6 +637,27 @@ export function DiscoveryFactory(explorer: Explorer) {
       return index;
     }
 
+    /**
+     * Retrieves the transaction history for a specific script public key.
+     *
+     * This method is useful for fetching transaction records associated with a specific
+     * script public key within a specified network and transaction status.
+     *
+     * The return value is computed based on the current state of discoveryInfo. The method
+     * uses memoization to maintain the same object reference for the returned result, given
+     * the same input parameters, as long as the corresponding transaction records in
+     * discoveryInfo haven't changed.
+     *
+     * This can be useful in environments such as React where preserving object identity can
+     * prevent unnecessary re-renders.
+     *
+     * @param {Expression} params.expression - The descriptor expression.
+     * @param {DescriptorIndex} params.index - The index in the descriptor.
+     * @param {Network} params.network - The network associated with the scriptPubKey.
+     * @param {TxStatus} [params.txStatus=TxStatus.ALL] - The transaction status to consider when fetching transaction history.
+     *
+     * @returns {Array<TxInfo>} - An array containing transaction info associated with the script public key.
+     */
     getHistoryByScriptPubKey({
       expression,
       index,
@@ -660,6 +681,27 @@ export function DiscoveryFactory(explorer: Explorer) {
         txStatus
       );
     }
+
+    /**
+     * Retrieves the transaction history for one or more descriptor expressions.
+     *
+     * This method is useful for accessing transaction records associated with one or more
+     * descriptor expressions within a specified network and transaction status.
+     *
+     * The return value is computed based on the current state of discoveryInfo. The method
+     * uses memoization to maintain the same object reference for the returned result, given
+     * the same input parameters, as long as the corresponding transaction records in
+     * discoveryInfo haven't changed.
+     *
+     * This can be useful in environments such as React where preserving object identity can
+     * prevent unnecessary re-renders.
+     *
+     * @param {Expression | Array<Expression>} params.expressions - One or more descriptor expressions.
+     * @param {Network} params.network - The network associated with the descriptor expressions.
+     * @param {TxStatus} [params.txStatus=TxStatus.ALL] - The transaction status to consider when fetching transaction history.
+     *
+     * @returns {Array<TxInfo>} - An array containing transaction info associated with the descriptor expressions.
+     */
     getHistory({
       expressions,
       network,

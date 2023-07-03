@@ -14,7 +14,7 @@
     "lint": "eslint --ignore-path .gitignore --ext .ts src/ test/",
     "updatelocalexplorer": "cd ../explorer && npm run build && cd - && npm uninstall @bitcoiberlab/explorer &&  npm install file:../explorer",
     "tester": "docker ps | grep bitcoinerlab/tester > /dev/null || (docker pull bitcoinerlab/tester && docker run -d -p 8080:8080 -p 60401:60401 -p 3002:3002 bitcoinerlab/tester && sleep 5)",
-    "test": "npm run lint && npm run build && npm run tester && NODE_OPTIONS=\"--experimental-fetch\" jest --openHandlesTimeout=4000",
+    "test": "npm run lint && npm run build && npm run tester && NODE_OPTIONS=\"--experimental-fetch\" jest --openHandlesTimeout=4000 --",
     "prepublishOnly": "npm test"
   },
   "jest": {

@@ -5,16 +5,38 @@
 export const fixtures = {
   regtest: {
     mnemonic: `tenant worth pistol rabbit praise drop pink toddler pony brown raven super`,
-    descriptors: {
-      "pkh([a0809f04/44'/1'/0']tpubDDZgrqYqZ8KhKDKYp1Skpg4S11C3PptLU5LgTg57HY6B3qEYb571N2AQUbRoAZduqtKnBDJDerXS588TKTcB3AP7rpoeUHu49mqZz4Ctnjp/100/*)":
-        { 1: 100000000, 12: 5000000, 34: 6000, 55: 1500000000 },
-      "pkh([a0809f04/44'/1'/1']tpubDDZgrqYqZ8KhNvcgoHZtkvKz87zzm6yGvEsLXyrchph9CAd43Qv8nGR1KD7WhwLGXCLq9HZwk2gyknQrdRDjjeeR9bK18APCeRPfwnYt7nH/100/*)":
-        {},
-      "pkh([a0809f04/44'/1'/2']tpubDDZgrqYqZ8KhRWoLmi9dXgxi14b3wuD9afKWgf4t2dGSUaEWmNsZ9Xwa6MxtLA2WakTSVpNL4MGrHBFs9TRr99p9GLN5arF8PWnZNn7P2Gp/100/0)":
-        { 'non-ranged': 123123 }
-    }
+    descriptors: [
+      {
+        expression:
+          "pkh([a0809f04/44'/1'/0']tpubDDZgrqYqZ8KhKDKYp1Skpg4S11C3PptLU5LgTg57HY6B3qEYb571N2AQUbRoAZduqtKnBDJDerXS588TKTcB3AP7rpoeUHu49mqZz4Ctnjp/100/*)",
+        scriptPubKeys: {
+          1: 100000000,
+          12: 5000000,
+          34: 6000,
+          55: 1500000000
+        }
+      },
+      {
+        expression:
+          "pkh([a0809f04/44'/1'/1']tpubDDZgrqYqZ8KhNvcgoHZtkvKz87zzm6yGvEsLXyrchph9CAd43Qv8nGR1KD7WhwLGXCLq9HZwk2gyknQrdRDjjeeR9bK18APCeRPfwnYt7nH/100/*)",
+        scriptPubKeys: {}
+      },
+      {
+        expression:
+          "pkh([a0809f04/44'/1'/2']tpubDDZgrqYqZ8KhRWoLmi9dXgxi14b3wuD9afKWgf4t2dGSUaEWmNsZ9Xwa6MxtLA2WakTSVpNL4MGrHBFs9TRr99p9GLN5arF8PWnZNn7P2Gp/100/0)",
+        scriptPubKeys: { 'non-ranged': 123123 }
+      },
+      {
+        expression:
+          "pkh([a0809f04/44'/1'/2']tpubDDZgrqYqZ8KhRWoLmi9dXgxi14b3wuD9afKWgf4t2dGSUaEWmNsZ9Xwa6MxtLA2WakTSVpNL4MGrHBFs9TRr99p9GLN5arF8PWnZNn7P2Gp/100/*)",
+        scriptPubKeys: { 0: 123123 },
+        error:
+          "The provided scriptPubKey is already set: pkh([a0809f04/44'/1'/2']tpubDDZgrqYqZ8KhRWoLmi9dXgxi14b3wuD9afKWgf4t2dGSUaEWmNsZ9Xwa6MxtLA2WakTSVpNL4MGrHBFs9TRr99p9GLN5arF8PWnZNn7P2Gp/100/0), non-ranged."
+      }
+    ]
   }
 };
+//TODO: TEST with gapLimit 1 -> it should not get anything
 //TODO: Test this error below
 //{
 //  expression: `pkh([a0809f04/44'/1'/2']tpubDDZgrqYqZ8KhRWoLmi9dXgxi14b3wuD9afKWgf4t2dGSUaEWmNsZ9Xwa6MxtLA2WakTSVpNL4MGrHBFs9TRr99p9GLN5arF8PWnZNn7P2Gp/0/*)`,

@@ -1,6 +1,15 @@
 // Copyright (c) 2023 Jose-Luis Landabaso - https://bitcoinerlab.com
 // Distributed under the MIT software license
 
+//TODO: TEST with gapLimit 1 -> it should not get anything
+//TODO: Test this error below
+//{
+//  expression: `pkh([a0809f04/44'/1'/2']tpubDDZgrqYqZ8KhRWoLmi9dXgxi14b3wuD9afKWgf4t2dGSUaEWmNsZ9Xwa6MxtLA2WakTSVpNL4MGrHBFs9TRr99p9GLN5arF8PWnZNn7P2Gp/0/*)`,
+//  value: 123123,
+//  error: 'duplicated utxoId'
+//}
+//TODO: test an unrangedDescriptor as above without value. It should not appear???
+//TODO: tests with used both for unrangedDescriptor and ranged and using pubkey instad of bip32, this should be detected
 import { RegtestUtils } from 'regtest-client';
 import { networks } from 'bitcoinjs-lib';
 import * as secp256k1 from '@bitcoinerlab/secp256k1';
@@ -46,23 +55,23 @@ describe('Discovery on regtest', () => {
       await explorer.instance.connect();
       //Let's fund (if needed fund=true) && test (fund=false) the descriptors:
       for (const funding of [true, false]) {
-        for (const [expression, scriptPubKeys] of Object.entries(
-          fixtures.regtest.descriptors
-        )) {
-          for (const [index, value] of Object.entries(scriptPubKeys)) {
-            const address = new Descriptor({
-              expression,
-              network,
-              ...(index === 'non-ranged' ? {} : { index: Number(index) })
-            }).getAddress();
-            const { balance } = await explorer.instance.fetchAddress(address);
-            if (funding) {
-              //Fund it only when not been founded already (in previous test runs)
-              if (balance === 0) await regtestUtils.faucet(address, value);
-            } else {
-              expect(balance).toEqual(value);
+        for (const { expression, scriptPubKeys, error } of fixtures.regtest
+          .descriptors) {
+          if (!error)
+            for (const [index, value] of Object.entries(scriptPubKeys)) {
+              const address = new Descriptor({
+                expression,
+                network,
+                ...(index === 'non-ranged' ? {} : { index: Number(index) })
+              }).getAddress();
+              const { balance } = await explorer.instance.fetchAddress(address);
+              if (funding) {
+                //Fund it only when not been founded already (in previous test runs)
+                if (balance === 0) await regtestUtils.faucet(address, value);
+              } else {
+                expect(balance).toEqual(value);
+              }
             }
-          }
         }
         //Confirm the transactions above
         if (funding) {
@@ -76,12 +85,22 @@ describe('Discovery on regtest', () => {
       `Discover on regtest`,
       async () => {
         const discovery = new Discovery();
-        for (const expression of Object.keys(fixtures.regtest.descriptors)) {
-          await discovery.discover({
-            //gapLimit: 1, //TODO: TEST THIS. with gapLimit 1 it should not get anything
-            expressions: expression,
-            network
-          });
+        for (const { expression, error } of fixtures.regtest.descriptors) {
+          if (error) {
+            await expect(
+              discovery.discover({
+                expressions: expression,
+                network
+              })
+            ).rejects.toThrow(error);
+          } else {
+            await expect(
+              discovery.discover({
+                expressions: expression,
+                network
+              })
+            ).resolves.not.toThrow();
+          }
         }
         const masterNode = BIP32.fromSeed(
           mnemonicToSeedSync(fixtures.regtest.mnemonic),
@@ -100,10 +119,19 @@ describe('Discovery on regtest', () => {
         //  )
         //);
         //await discovery.discoverTxs({ network });
-        console.log(JSON.stringify(discovery.getDiscoveryInfo(), null, 2));
-        await explorer.instance.close();
+        //console.log(JSON.stringify(discovery.getDiscoveryInfo(), null, 2));
       },
       60 * 5 * 1000
     );
+
+    //test(`Invalid`, async () => {
+    //  await.discovery.discover({
+    //});
+
+    test(`Close`, async () => {
+      expect(async () => {
+        await explorer.instance.close();
+      }).not.toThrow();
+    });
   }
 });

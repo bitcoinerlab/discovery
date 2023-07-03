@@ -12,7 +12,7 @@
     "build:test": "npx tsc --project tsconfig.test.json",
     "build": "npm run build:src && npm run build:test",
     "lint": "eslint --ignore-path .gitignore --ext .ts src/ test/",
-    "updatelocalexplorer": "cd ../explorer && npm run build && cd - && npm uninstall @bitcoiberlab/explorer &&  npm install file:../explorer",
+    "updatelocalexplorer": "cd ../explorer && npm run build && npm pack && mv *.tgz ../discovery && cd ../discovery && npm uninstall @bitcoinerlab/explorer && npm install ./bitcoinerlab-explorer-*.tgz && rm ./bitcoinerlab-explorer-*.tgz",
     "tester": "docker ps | grep bitcoinerlab/tester > /dev/null || (docker pull bitcoinerlab/tester && docker run -d -p 8080:8080 -p 60401:60401 -p 3002:3002 bitcoinerlab/tester && sleep 5)",
     "test": "npm run lint && npm run build && npm run tester && NODE_OPTIONS=\"--experimental-fetch\" jest --openHandlesTimeout=4000 --",
     "prepublishOnly": "npm test"
@@ -45,7 +45,7 @@
   ],
   "dependencies": {
     "@bitcoinerlab/descriptors": "^0.3.1",
-    "@bitcoinerlab/explorer": "file:../explorer",
+    "@bitcoinerlab/explorer": "file:bitcoinerlab-explorer-0.0.1.tgz",
     "@bitcoinerlab/secp256k1": "^1.0.2",
     "@types/memoizee": "^0.4.8",
     "bitcoinjs-lib": "^6.1.0",

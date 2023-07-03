@@ -1,12 +1,6 @@
 // Copyright (c) 2023 Jose-Luis Landabaso - https://bitcoinerlab.com
 // Distributed under the MIT software license
 
-//TODO: Timeouts on //host: 'fulcrum.theuplink.net', //TIMEOUT. Reconnect and retry?
-//https://blog.keys.casa/electrum-server-performance-report-2022/
-//TODO: Add more comments about Search Space on deriveData.ts
-//TODO: in what occasions will functions return a different reference
-//if the CACHES are hit? - document the parent functions explaining about
-//keeping references (unless a hard-cap on memory is reached)
 import { produce } from 'immer';
 import { shallowEqualArrays } from 'shallow-equal';
 

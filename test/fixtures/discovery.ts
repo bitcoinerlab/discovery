@@ -36,12 +36,3 @@ export const fixtures = {
     ]
   }
 };
-//TODO: TEST with gapLimit 1 -> it should not get anything
-//TODO: Test this error below
-//{
-//  expression: `pkh([a0809f04/44'/1'/2']tpubDDZgrqYqZ8KhRWoLmi9dXgxi14b3wuD9afKWgf4t2dGSUaEWmNsZ9Xwa6MxtLA2WakTSVpNL4MGrHBFs9TRr99p9GLN5arF8PWnZNn7P2Gp/0/*)`,
-//  value: 123123,
-//  error: 'duplicated utxoId'
-//}
-//TODO: test an unrangedDescriptor as above without value. It should not appear???
-//TODO: tests with used both for unrangedDescriptor and ranged and using pubkey instad of bip32, this should be detected

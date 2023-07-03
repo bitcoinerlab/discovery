@@ -121,7 +121,7 @@ export function DiscoveryFactory(explorer: Explorer) {
           const index = indexStr === 'non-ranged' ? indexStr : Number(indexStr);
           if (
             scriptPubKey.equals(
-              this.#derivers.deriveScriptPubKey(expression, index) //This will be very fast (uses memoization)
+              this.#derivers.deriveScriptPubKey(networkId, expression, index) //This will be very fast (uses memoization)
             )
           ) {
             throw new Error(
@@ -169,7 +169,11 @@ export function DiscoveryFactory(explorer: Explorer) {
     }): Promise<boolean> {
       expression = canonicalize(expression, network) as string;
       const networkId = getNetworkId(network);
-      const scriptPubKey = this.#derivers.deriveScriptPubKey(expression, index);
+      const scriptPubKey = this.#derivers.deriveScriptPubKey(
+        networkId,
+        expression,
+        index
+      );
       //https://electrumx.readthedocs.io/en/latest/protocol-basics.html#script-hashes
       const scriptHash = Buffer.from(crypto.sha256(scriptPubKey))
         .reverse()
@@ -521,6 +525,7 @@ export function DiscoveryFactory(explorer: Explorer) {
       if (!txIds)
         throw new Error(`txIds not defined for ${expression} and ${index}`);
       return this.#derivers.deriveUtxosAndBalanceByScriptPubKey(
+        networkId,
         txInfoRecords,
         descriptors,
         expression,
@@ -569,6 +574,7 @@ export function DiscoveryFactory(explorer: Explorer) {
       const descriptors = this.discoveryInfo[networkId].descriptors;
       const txInfoRecords = this.discoveryInfo[networkId].txInfoRecords;
       return this.#derivers.deriveUtxosAndBalanceByExpressions(
+        networkId,
         txInfoRecords,
         descriptors,
         expressions,

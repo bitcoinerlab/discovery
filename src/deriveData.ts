@@ -52,33 +52,42 @@ export function deriveDataFactory({
   indicesPerExpessionCacheSize: number;
 }) {
   const deriveScriptPubKeyFactory = memoizee(
-    (expression: Expression) =>
+    (networkId: NetworkId) =>
       memoizee(
-        (index: DescriptorIndex) => {
-          //Note there is no need to pass a network (bitcoin will be default) but
-          //it's not important anyway since the scriptPubKey does not depend on
-          //the network
-          const descriptor =
-            index === 'non-ranged'
-              ? new Descriptor({ expression })
-              : new Descriptor({ expression, index });
-          const scriptPubKey = descriptor.getScriptPubKey();
-          return scriptPubKey;
-        },
-        { primitive: true, max: indicesPerExpessionCacheSize }
+        (expression: Expression) =>
+          memoizee(
+            (index: DescriptorIndex) => {
+              const network = getNetwork(networkId);
+              //Note there is no need to pass a network (bitcoin will be default) but
+              //it's not important anyway since the scriptPubKey does not depend on
+              //the network
+              const descriptor =
+                index === 'non-ranged'
+                  ? new Descriptor({ expression, network })
+                  : new Descriptor({ expression, index, network });
+              const scriptPubKey = descriptor.getScriptPubKey();
+              return scriptPubKey;
+            },
+            { primitive: true, max: indicesPerExpessionCacheSize }
+          ),
+        { primitive: true, max: expressionsCacheSize }
       ),
-    { primitive: true, max: expressionsCacheSize }
+    { primitive: true } //unbounded cache (no max setting) since Search Space is small
   );
-  const deriveScriptPubKey = (expression: Expression, index: DescriptorIndex) =>
-    deriveScriptPubKeyFactory(expression)(index);
+  const deriveScriptPubKey = (
+    networkId: NetworkId,
+    expression: Expression,
+    index: DescriptorIndex
+  ) => deriveScriptPubKeyFactory(networkId)(expression)(index);
 
   const coreDeriveUtxosByScriptPubKey = (
+    networkId: NetworkId,
     expression: Expression,
     index: DescriptorIndex,
     txInfoArray: Array<TxInfo>,
     txStatus: TxStatus
   ): Array<Utxo> => {
-    const scriptPubKey = deriveScriptPubKey(expression, index);
+    const scriptPubKey = deriveScriptPubKey(networkId, expression, index);
 
     const allOutputs: Utxo[] = [];
     const spentOutputs: Utxo[] = [];
@@ -128,73 +137,83 @@ export function deriveDataFactory({
   };
 
   const deriveUtxosAndBalanceByScriptPubKeyFactory = memoizee(
-    (txStatus: TxStatus) =>
+    (networkId: NetworkId) =>
       memoizee(
-        (expression: Expression) =>
+        (txStatus: TxStatus) =>
           memoizee(
-            (index: DescriptorIndex) => {
-              // Create one function per each expression x index x txStatus
-              // coreDeriveUtxosByScriptPubKey shares all params wrt the parent
-              // function except for additional param txInfoArray.
-              // As soon as txInfoArray in coreDeriveUtxosByScriptPubKey changes,
-              // it will resets its memory. However, it always returns the same
-              // reference if the resulting array is shallowy-equal:
-              const deriveUtxosByScriptPubKey =
-                memoizeOneWithShallowArraysCheck(coreDeriveUtxosByScriptPubKey);
-              let lastUtxos: Array<Utxo> | null = null;
-              let lastBalance: number;
-              return memoizee(
-                (
-                  txInfoRecords: Record<TxId, TxInfo>,
-                  descriptors: Record<Expression, DescriptorInfo>
-                ) => {
-                  const scriptPubKeyInfoRecords =
-                    descriptors[expression]?.scriptPubKeyInfoRecords ||
-                    ({} as Record<DescriptorIndex, ScriptPubKeyInfo>);
-                  const txIds = scriptPubKeyInfoRecords[index]?.txIds;
-                  if (!txIds)
-                    throw new Error(
-                      `txIds not defined for ${expression} and ${index}`
+            (expression: Expression) =>
+              memoizee(
+                (index: DescriptorIndex) => {
+                  // Create one function per each expression x index x txStatus
+                  // coreDeriveUtxosByScriptPubKey shares all params wrt the parent
+                  // function except for additional param txInfoArray.
+                  // As soon as txInfoArray in coreDeriveUtxosByScriptPubKey changes,
+                  // it will resets its memory. However, it always returns the same
+                  // reference if the resulting array is shallowy-equal:
+                  const deriveUtxosByScriptPubKey =
+                    memoizeOneWithShallowArraysCheck(
+                      coreDeriveUtxosByScriptPubKey
                     );
-                  const txInfoArray = deriveTxInfoArray(
-                    txInfoRecords,
-                    descriptors,
-                    expression,
-                    index
+                  let lastUtxos: Array<Utxo> | null = null;
+                  let lastBalance: number;
+                  return memoizee(
+                    (
+                      txInfoRecords: Record<TxId, TxInfo>,
+                      descriptors: Record<Expression, DescriptorInfo>
+                    ) => {
+                      const scriptPubKeyInfoRecords =
+                        descriptors[expression]?.scriptPubKeyInfoRecords ||
+                        ({} as Record<DescriptorIndex, ScriptPubKeyInfo>);
+                      const txIds = scriptPubKeyInfoRecords[index]?.txIds;
+                      if (!txIds)
+                        throw new Error(
+                          `txIds not defined for ${expression} and ${index}`
+                        );
+                      const txInfoArray = deriveTxInfoArray(
+                        txInfoRecords,
+                        descriptors,
+                        expression,
+                        index
+                      );
+                      const utxos = deriveUtxosByScriptPubKey(
+                        networkId,
+                        expression,
+                        index,
+                        txInfoArray,
+                        txStatus
+                      );
+                      if (lastUtxos && shallowEqualArrays(lastUtxos, utxos))
+                        return { utxos: lastUtxos, balance: lastBalance };
+                      lastUtxos = utxos;
+                      lastBalance = coreDeriveUtxosBalance(
+                        txInfoRecords,
+                        utxos
+                      );
+                      return { utxos, balance: lastBalance };
+                    },
+                    { max: 1 }
                   );
-                  const utxos = deriveUtxosByScriptPubKey(
-                    expression,
-                    index,
-                    txInfoArray,
-                    txStatus
-                  );
-                  if (lastUtxos && shallowEqualArrays(lastUtxos, utxos))
-                    return { utxos: lastUtxos, balance: lastBalance };
-                  lastUtxos = utxos;
-                  lastBalance = coreDeriveUtxosBalance(txInfoRecords, utxos);
-                  return { utxos, balance: lastBalance };
                 },
-                { max: 1 }
-              );
-            },
-            { primitive: true, max: indicesPerExpessionCacheSize }
+                { primitive: true, max: indicesPerExpessionCacheSize }
+              ),
+            { primitive: true, max: expressionsCacheSize }
           ),
-        { primitive: true, max: expressionsCacheSize }
+        { primitive: true } //unbounded cache (no max setting) since Search Space is small
       ),
     { primitive: true } //unbounded cache (no max setting) since Search Space is small
   );
 
   const deriveUtxosAndBalanceByScriptPubKey = (
+    networkId: NetworkId,
     txInfoRecords: Record<TxId, TxInfo>,
     descriptors: Record<Expression, DescriptorInfo>,
     expression: Expression,
     index: DescriptorIndex,
     txStatus: TxStatus
   ) =>
-    deriveUtxosAndBalanceByScriptPubKeyFactory(txStatus)(expression)(index)(
-      txInfoRecords,
-      descriptors
-    );
+    deriveUtxosAndBalanceByScriptPubKeyFactory(networkId)(txStatus)(expression)(
+      index
+    )(txInfoRecords, descriptors);
 
   const coreDeriveTxInfoArray = (
     txIds: Array<TxId>,
@@ -358,6 +377,7 @@ export function deriveDataFactory({
   ) => deriveHistoryFactory(txStatus)(expressions)(txInfoRecords, descriptors);
 
   const coreDeriveUtxosByExpressions = (
+    networkId: NetworkId,
     descriptors: Record<Expression, DescriptorInfo>,
     txInfoRecords: Record<TxId, TxInfo>,
     expressions: Array<Expression> | Expression,
@@ -380,6 +400,7 @@ export function deriveDataFactory({
             throw new Error(`txIds not defined for ${expression} and ${index}`);
           utxos.push(
             ...deriveUtxosAndBalanceByScriptPubKey(
+              networkId,
               txInfoRecords,
               descriptors,
               expression,
@@ -400,43 +421,49 @@ export function deriveDataFactory({
   //returns {balance, utxos}. The reference of utxos will be kept the same for
   //each tuple of txStatus x expressions
   const deriveUtxosAndBalanceByExpressionsFactory = memoizee(
-    (txStatus: TxStatus) =>
+    (networkId: NetworkId) =>
       memoizee(
-        (expressions: Array<Expression> | Expression) => {
-          let lastUtxos: Array<Utxo> | null = null;
-          let lastBalance: number;
-          return memoizee(
-            (
-              txInfoRecords: Record<TxId, TxInfo>,
-              descriptors: Record<Expression, DescriptorInfo>
-            ) => {
-              const utxos = coreDeriveUtxosByExpressions(
-                descriptors,
-                txInfoRecords,
-                expressions,
-                txStatus
+        (txStatus: TxStatus) =>
+          memoizee(
+            (expressions: Array<Expression> | Expression) => {
+              let lastUtxos: Array<Utxo> | null = null;
+              let lastBalance: number;
+              return memoizee(
+                (
+                  txInfoRecords: Record<TxId, TxInfo>,
+                  descriptors: Record<Expression, DescriptorInfo>
+                ) => {
+                  const utxos = coreDeriveUtxosByExpressions(
+                    networkId,
+                    descriptors,
+                    txInfoRecords,
+                    expressions,
+                    txStatus
+                  );
+                  if (lastUtxos && shallowEqualArrays(lastUtxos, utxos))
+                    return { utxos: lastUtxos, balance: lastBalance };
+                  lastUtxos = utxos;
+                  lastBalance = coreDeriveUtxosBalance(txInfoRecords, utxos);
+                  return { utxos, balance: lastBalance };
+                },
+                { max: 1 }
               );
-              if (lastUtxos && shallowEqualArrays(lastUtxos, utxos))
-                return { utxos: lastUtxos, balance: lastBalance };
-              lastUtxos = utxos;
-              lastBalance = coreDeriveUtxosBalance(txInfoRecords, utxos);
-              return { utxos, balance: lastBalance };
             },
-            { max: 1 }
-          );
-        },
-        { primitive: true, max: expressionsCacheSize } //potentially ininite search space. limit to 100 expressions per txStatus combination
+            { primitive: true, max: expressionsCacheSize } //potentially ininite search space. limit to 100 expressions per txStatus combination
+          ),
+        { primitive: true } //unbounded cache (no max setting) since Search Space is small
       ),
     { primitive: true } //unbounded cache (no max setting) since Search Space is small
   );
 
   const deriveUtxosAndBalanceByExpressions = (
+    networkId: NetworkId,
     txInfoRecords: Record<TxId, TxInfo>,
     descriptors: Record<Expression, DescriptorInfo>,
     expressions: Array<Expression> | Expression,
     txStatus: TxStatus
   ) =>
-    deriveUtxosAndBalanceByExpressionsFactory(txStatus)(expressions)(
+    deriveUtxosAndBalanceByExpressionsFactory(networkId)(txStatus)(expressions)(
       txInfoRecords,
       descriptors
     );

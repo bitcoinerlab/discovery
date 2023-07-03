@@ -51,35 +51,46 @@ describe('Discovery on regtest', () => {
     }
   ]) {
     const { Discovery } = DiscoveryFactory(explorer.instance);
-    test(`Fund with ${explorer.name}`, async () => {
-      await explorer.instance.connect();
-      //Let's fund (if needed fund=true) && test (fund=false) the descriptors:
-      for (const funding of [true, false]) {
-        for (const { expression, scriptPubKeys, error } of fixtures.regtest
-          .descriptors) {
-          if (!error)
-            for (const [index, value] of Object.entries(scriptPubKeys)) {
-              const address = new Descriptor({
-                expression,
-                network,
-                ...(index === 'non-ranged' ? {} : { index: Number(index) })
-              }).getAddress();
-              const { balance } = await explorer.instance.fetchAddress(address);
-              if (funding) {
-                //Fund it only when not been founded already (in previous test runs)
-                if (balance === 0) await regtestUtils.faucet(address, value);
-              } else {
+    test(`Connects to ${explorer.name}`, async () => {
+      expect(async () => {
+        await explorer.instance.connect();
+      }).not.toThrow();
+    });
+    //Let's fund (if needed fund=true) && test (fund=false) the descriptors:
+    for (const funding of [true, false]) {
+      test(
+        funding
+          ? 'Faucet funds if balance = 0'
+          : `Retrieve balance with explorer.fetchAddress using ${explorer.name}`,
+        async () => {
+          for (const { expression, scriptPubKeys, error } of fixtures.regtest
+            .descriptors) {
+            if (!error)
+              for (const [index, value] of Object.entries(scriptPubKeys)) {
+                const address = new Descriptor({
+                  expression,
+                  network,
+                  ...(index === 'non-ranged' ? {} : { index: Number(index) })
+                }).getAddress();
+                const { balance } = await explorer.instance.fetchAddress(
+                  address
+                );
+                if (funding && balance === 0) {
+                  const unspent = await regtestUtils.faucet(address, value);
+                  expect(unspent.value).toEqual(value);
+                }
                 expect(balance).toEqual(value);
               }
-            }
-        }
-        //Confirm the transactions above
-        if (funding) {
-          await regtestUtils.mine(6);
-          await new Promise(resolve => setTimeout(resolve, 5000)); //sleep 5 sec
-        }
-      }
-    }, 20000);
+          }
+          //Confirm the transactions above
+          if (funding) {
+            await regtestUtils.mine(6);
+            await new Promise(resolve => setTimeout(resolve, 5000)); //sleep 5 sec
+          }
+        },
+        20000
+      );
+    }
 
     test(
       `Discover on regtest`,
@@ -128,7 +139,7 @@ describe('Discovery on regtest', () => {
     //  await.discovery.discover({
     //});
 
-    test(`Close`, async () => {
+    test(`Closes ${explorer.name}`, async () => {
       expect(async () => {
         await explorer.instance.close();
       }).not.toThrow();

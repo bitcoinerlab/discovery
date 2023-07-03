@@ -43,6 +43,7 @@ describe('Discovery on regtest', () => {
   ]) {
     const { Discovery } = DiscoveryFactory(explorer.instance);
     test(`Fund with ${explorer.name}`, async () => {
+      await explorer.instance.connect();
       //Let's fund (if needed fund=true) && test (fund=false) the descriptors:
       for (const funding of [true, false]) {
         for (const [expression, scriptPubKeys] of Object.entries(
@@ -100,6 +101,7 @@ describe('Discovery on regtest', () => {
         //);
         //await discovery.discoverTxs({ network });
         console.log(JSON.stringify(discovery.getDiscoveryInfo(), null, 2));
+        await explorer.instance.close();
       },
       60 * 5 * 1000
     );

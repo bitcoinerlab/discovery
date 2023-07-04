@@ -161,14 +161,6 @@ export function deriveDataFactory({
                       txInfoRecords: Record<TxId, TxInfo>,
                       descriptors: Record<Expression, DescriptorInfo>
                     ) => {
-                      const scriptPubKeyInfoRecords =
-                        descriptors[expression]?.scriptPubKeyInfoRecords ||
-                        ({} as Record<DescriptorIndex, ScriptPubKeyInfo>);
-                      const txIds = scriptPubKeyInfoRecords[index]?.txIds;
-                      if (!txIds)
-                        throw new Error(
-                          `txIds not defined for ${expression} and ${index}`
-                        );
                       const txInfoArray = deriveTxInfoArray(
                         txInfoRecords,
                         descriptors,
@@ -237,11 +229,7 @@ export function deriveDataFactory({
               const scriptPubKeyInfoRecords =
                 descriptors[expression]?.scriptPubKeyInfoRecords ||
                 ({} as Record<DescriptorIndex, ScriptPubKeyInfo>);
-              const txIds = scriptPubKeyInfoRecords[index]?.txIds;
-              if (!txIds)
-                throw new Error(
-                  `txIds not defined for ${expression} and ${index}`
-                );
+              const txIds = scriptPubKeyInfoRecords[index]?.txIds || [];
               const txInfoArray = coreDeriveTxInfoArray(txIds, txInfoRecords);
               return txInfoArray;
             }

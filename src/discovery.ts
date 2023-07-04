@@ -517,13 +517,7 @@ export function DiscoveryFactory(explorer: Explorer) {
       expression = canonicalize(expression, network) as string;
       const networkId = getNetworkId(network);
       const descriptors = this.discoveryInfo[networkId].descriptors;
-      const scriptPubKeyInfoRecords =
-        descriptors[expression]?.scriptPubKeyInfoRecords ||
-        ({} as Record<DescriptorIndex, ScriptPubKeyInfo>);
-      const txIds = scriptPubKeyInfoRecords[index]?.txIds;
       const txInfoRecords = this.discoveryInfo[networkId].txInfoRecords;
-      if (!txIds)
-        throw new Error(`txIds not defined for ${expression} and ${index}`);
       return this.#derivers.deriveUtxosAndBalanceByScriptPubKey(
         networkId,
         txInfoRecords,

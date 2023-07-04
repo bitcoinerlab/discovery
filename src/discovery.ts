@@ -497,7 +497,7 @@ export function DiscoveryFactory(explorer: Explorer) {
      * @param {DescriptorIndex} index - The descriptor index associated with the
      * scriptPubKey.
      * @param {Network} network - The network associated with the scriptPubKey.
-     * @param {TxStatus} txStatus - The transaction status to consider when
+     * @param {TxStatus} [txStatus=TxStatus.ALL] - The transaction status to consider when
      * extracting UTXOs and balance.
      *
      * @returns {Object} - An object containing the UTXOs associated with the
@@ -507,12 +507,12 @@ export function DiscoveryFactory(explorer: Explorer) {
       expression,
       index,
       network,
-      txStatus
+      txStatus = TxStatus.ALL
     }: {
       expression: Expression;
       index: DescriptorIndex;
       network: Network;
-      txStatus: TxStatus;
+      txStatus?: TxStatus;
     }): { utxos: Array<Utxo>; balance: number } {
       expression = canonicalize(expression, network) as string;
       const networkId = getNetworkId(network);
@@ -554,7 +554,7 @@ export function DiscoveryFactory(explorer: Explorer) {
      * expression(s) associated with the scriptPubKeys. Can be a single
      * expression or an array of expressions.
      * @param {Network} network - The network associated with the scriptPubKeys.
-     * @param {TxStatus} txStatus - The transaction status to consider when
+     * @param {TxStatus} [txStatus=TxStatus.ALL] - The transaction status to consider when
      * extracting UTXOs and balance.
      *
      * @returns {Object} - An object containing the UTXOs associated with the
@@ -563,11 +563,11 @@ export function DiscoveryFactory(explorer: Explorer) {
     getUtxos({
       expressions,
       network,
-      txStatus
+      txStatus = TxStatus.ALL
     }: {
       expressions: Expression | Array<Expression>;
       network: Network;
-      txStatus: TxStatus;
+      txStatus?: TxStatus;
     }): { utxos: Array<Utxo>; balance: number } {
       expressions = canonicalize(expressions, network);
       const networkId = getNetworkId(network);
@@ -597,7 +597,7 @@ export function DiscoveryFactory(explorer: Explorer) {
      * @param {boolean} isExternal - If true, returns the next index for an external key.
      *                               If false, returns the next index for an internal key.
      *                               Defaults to true if not provided.
-     * @param {TxStatus} txStatus - A scriptPubKey will be considered as used when
+     * @param {TxStatus} [txStatus=TxStatus.ALL] - A scriptPubKey will be considered as used when
      * its transaction status is txStatus
      * extracting UTXOs and balance.
      *

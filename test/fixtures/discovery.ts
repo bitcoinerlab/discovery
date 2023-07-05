@@ -35,6 +35,8 @@ export const fixtures = {
         error:
           "The provided scriptPubKey is already set: pkh([a0809f04/44'/1'/2']tpubDDZgrqYqZ8KhRWoLmi9dXgxi14b3wuD9afKWgf4t2dGSUaEWmNsZ9Xwa6MxtLA2WakTSVpNL4MGrHBFs9TRr99p9GLN5arF8PWnZNn7P2Gp/100/0), non-ranged."
       }
-    ]
+    ],
+    nonDiscoveredExpression:
+      "pkh([a0809f04/44'/1'/1']tpubDDZgrqYqZ8KhKDKYp1Skpg4S11C3PptLU5LgTg57HY6B3qEYb571N2AQUbRoAZduqtKnBDJDerXS588TKTcB3AP7rpoeUHu49mqZz4Ctnjp/100/*)"
   }
 };

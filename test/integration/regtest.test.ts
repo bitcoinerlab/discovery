@@ -1,7 +1,7 @@
 // Copyright (c) 2023 Jose-Luis Landabaso - https://bitcoinerlab.com
 // Distributed under the MIT software license
 
-//TODO: TEST with gapLimit 1 -> it should not get anything
+//TODO: Test immutability
 //TODO: Test this error below
 //{
 //  expression: `pkh([a0809f04/44'/1'/2']tpubDDZgrqYqZ8KhRWoLmi9dXgxi14b3wuD9afKWgf4t2dGSUaEWmNsZ9Xwa6MxtLA2WakTSVpNL4MGrHBFs9TRr99p9GLN5arF8PWnZNn7P2Gp/0/*)`,
@@ -59,7 +59,6 @@ const parseScriptPubKeys = (scriptPubKeys: Record<DescriptorIndex, number>) => {
     return (a.index as number) - (b.index as number);
   });
 
-  // Add 'outOfGapLimit' to each entry - TODO: set gapLimit to fixtures and then set it here and in discovery
   let previousIndex = 0;
   let totalBalance = 0;
   scriptPubKeyArray = scriptPubKeyArray.map(entry => {
@@ -210,17 +209,6 @@ describe('Discovery on regtest', () => {
               })
             ).resolves.not.toThrow();
           });
-          //console.log(
-          //  explorer.name,
-          //  JSON.stringify(discoverer.discovery!.getDiscoveryInfo(), null, 2)
-          //);
-          //TODO: Also test that trying to getUtxos on an expression not discovered
-          //throws
-          //TODO: Also this-> discover.getUtxos
-          //TODO: Test TxStatus.ALL....
-          //  await regtestUtils.mine(6);
-          //  await new Promise(resolve => setTimeout(resolve, 5000)); //sleep 5 sec
-          //TODO: Test immutability
 
           // Convert entries into array of objects
           const { totalBalance, totalUtxosCount, scriptPubKeyArray } =
@@ -372,6 +360,16 @@ describe('Discovery on regtest', () => {
       //await discoverer.discovery!.discoverTxs({ network });
       //console.log(JSON.stringify(discoverer.discovery!.getDiscoveryInfo(), null, 2));
     }
+  }
+  for (const discoverer of discoverers) {
+    test(`getUtxos from non discovered expression using ${discoverer.name}`, async () => {
+      const { balance, utxos } = discoverer.discovery!.getUtxos({
+        expressions: fixtures.regtest.nonDiscoveredExpression,
+        network
+      });
+      expect(balance).toEqual(0);
+      expect(utxos.length).toEqual(0);
+    });
   }
 
   for (const { explorer, name } of discoverers) {

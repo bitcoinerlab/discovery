@@ -627,18 +627,16 @@ export function DiscoveryFactory(explorer: Explorer) {
       const descriptors = this.discoveryInfo[networkId].descriptors;
       const txInfoRecords = this.discoveryInfo[networkId].txInfoRecords;
       let index = 0;
-      try {
-        while (
-          this.#derivers.deriveHistoryByScriptPubKey(
-            txInfoRecords,
-            descriptors,
-            expression,
-            index,
-            txStatus
-          ).length
-        )
-          index++;
-      } catch (error) {}
+      while (
+        this.#derivers.deriveHistoryByScriptPubKey(
+          txInfoRecords,
+          descriptors,
+          expression,
+          index,
+          txStatus
+        ).length
+      )
+        index++;
       return index;
     }
 

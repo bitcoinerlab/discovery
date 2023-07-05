@@ -383,9 +383,6 @@ export function deriveDataFactory({
         .sort() //Sort it to be deterministic
         .forEach(indexStr => {
           const index = indexStr === 'non-ranged' ? indexStr : Number(indexStr);
-          const txIds = scriptPubKeyInfoRecords[index]?.txIds;
-          if (!txIds)
-            throw new Error(`txIds not defined for ${expression} and ${index}`);
           utxos.push(
             ...deriveUtxosAndBalanceByScriptPubKey(
               networkId,

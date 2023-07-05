@@ -95,7 +95,23 @@ describe('Discovery on regtest', () => {
               network,
               ...(indexStr === 'non-ranged' ? {} : { index: Number(indexStr) })
             }).getAddress();
-            const unspents = await regtestUtils.unspents(address);
+            let unspents:
+              | Awaited<ReturnType<typeof regtestUtils.unspents>>
+              | undefined;
+            const ATTEMPTS = 10;
+            for (let i = 0; i < ATTEMPTS; i++) {
+              try {
+                unspents = await regtestUtils.unspents(address);
+                break;
+              } catch (err: unknown) {
+                const message = (err as Error).message;
+                console.warn(`Attempt #${i + 1} to access a node: ${message}`);
+                // Wait for 1 sec except after the final attempt
+                if (i < ATTEMPTS - 1)
+                  await new Promise(resolve => setTimeout(resolve, 1000));
+              }
+            }
+            if (!unspents) throw new Error('All attempts failed');
             expect([0, 1]).toContain(unspents.length);
             let unspent = unspents[0];
             if (funding) {

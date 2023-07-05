@@ -13,7 +13,7 @@
     "build": "npm run build:src && npm run build:test",
     "lint": "eslint --ignore-path .gitignore --ext .ts src/ test/",
     "updatelocalexplorer": "cd ../explorer && npm run build && npm pack && mv *.tgz ../discovery && cd ../discovery && npm uninstall @bitcoinerlab/explorer && npm install ./bitcoinerlab-explorer-*.tgz && rm ./bitcoinerlab-explorer-*.tgz",
-    "tester": "docker images | grep -q bitcoinerlab/tester || docker pull bitcoinerlab/tester; docker stop $(docker ps -q -f ancestor=bitcoinerlab/tester) > /dev/null 2>&1; docker rm $(docker ps -aq -f status=exited -f ancestor=bitcoinerlab/tester) > /dev/null 2>&1; docker run -d -p 8080:8080 -p 60401:60401 -p 3002:3002 bitcoinerlab/tester && sleep 5",
+    "tester": "docker images | grep -q bitcoinerlab/tester || docker pull bitcoinerlab/tester; docker rm -f $(docker ps -a -q -f ancestor=bitcoinerlab/tester) > /dev/null 2>&1; docker run -d -p 8080:8080 -p 60401:60401 -p 3002:3002 bitcoinerlab/tester",
     "test": "npm run lint && npm run build && npm run tester && NODE_OPTIONS=\"--experimental-fetch\" jest --openHandlesTimeout=4000 --",
     "prepublishOnly": "npm test"
   },

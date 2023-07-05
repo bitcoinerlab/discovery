@@ -8,7 +8,7 @@ import {
   NetworkId,
   ScriptPubKeyInfo,
   Expression,
-  Wallet,
+  Account,
   DescriptorIndex,
   DiscoveryInfo,
   Utxo,
@@ -543,21 +543,20 @@ export function deriveDataFactory({
   ) => deriveExpressionsFactory(networkId)(discoveryInfo);
 
   /**
-   * Derives the wallets from a set of expressions.
-   * Descriptor expressions of a wallet share the same pattern, except for
+   * Derives the accounts from the discoveryInfo.
+   * Descriptor expressions of an account share the same pattern, except for
    * their keyInfo, which can end with either /0/* or /1/*.
-   * A Wallet is represented by its external descriptor.
+   * An Account is represented by its external descriptor.
    *
    * @param {NetworkId} networkId
-   * @returns {Array<Array<Expression>>}- Returns an array of wallets derived from
-   * the given expressions.
+   * @returns {Array<Account>}- Returns an array of accounts.
    */
-  const coreDeriveWallets = (
+  const coreDeriveAccounts = (
     discoveryInfo: DiscoveryInfo,
     networkId: NetworkId
-  ): Array<Expression> => {
+  ): Array<Account> => {
     const expressions = coreDeriveExpressions(discoveryInfo, networkId);
-    const wallets: Array<Wallet> = [];
+    const accounts: Array<Account> = [];
 
     const network = getNetwork(networkId);
     const expandedDescriptors = expressions.map(expression => ({
@@ -573,28 +572,28 @@ export function deriveDataFactory({
           );
 
         if (keyInfo.keyPath === '/0/*' || keyInfo.keyPath === '/1/*') {
-          const wallet = expression.replace(/\/1\/\*/g, '/0/*');
-          if (!wallets.includes(wallet)) wallets.push(wallet);
+          const account = expression.replace(/\/1\/\*/g, '/0/*');
+          if (!accounts.includes(account)) accounts.push(account);
         }
       }
     }
-    return wallets.sort(); //So it's deterministic
+    return accounts.sort(); //So it's deterministic
   };
 
-  const deriveWalletsFactory = memoizee(
+  const deriveAccountsFactory = memoizee(
     (networkId: NetworkId) => {
       return memoizeOneWithShallowArraysCheck((discoveryInfo: DiscoveryInfo) =>
-        coreDeriveWallets(discoveryInfo, networkId)
+        coreDeriveAccounts(discoveryInfo, networkId)
       );
     },
     { primitive: true } //unbounded cache (no max setting) since Search Space is small
   );
 
-  const deriveWallets = (discoveryInfo: DiscoveryInfo, networkId: NetworkId) =>
-    deriveWalletsFactory(networkId)(discoveryInfo);
+  const deriveAccounts = (discoveryInfo: DiscoveryInfo, networkId: NetworkId) =>
+    deriveAccountsFactory(networkId)(discoveryInfo);
 
-  const deriveWalletExpressions = memoizee(
-    (wallet: Wallet) => [wallet, wallet.replace(/\/0\/\*/g, '/1/*')],
+  const deriveAccountExpressions = memoizee(
+    (account: Account) => [account, account.replace(/\/0\/\*/g, '/1/*')],
     { primitive: true, max: expressionsCacheSize }
   );
 
@@ -603,8 +602,8 @@ export function deriveDataFactory({
     deriveUtxosAndBalanceByScriptPubKey,
     deriveUtxosAndBalanceByExpressions,
     deriveExpressions,
-    deriveWallets,
-    deriveWalletExpressions,
+    deriveAccounts,
+    deriveAccountExpressions,
     deriveHistoryByScriptPubKey,
     deriveHistory,
     transactionFromHex

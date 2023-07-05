@@ -59,7 +59,7 @@ export type ScriptPubKeyInfo = {
  * this descriptor as non-ranged.
  */
 export type Expression = string;
-export type Wallet = Expression;
+export type Account = Expression;
 export type DescriptorIndex = number | 'non-ranged';
 
 /**

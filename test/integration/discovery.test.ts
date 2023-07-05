@@ -17,10 +17,10 @@ import * as descriptors from '@bitcoinerlab/descriptors';
 import { mnemonicToSeedSync } from 'bip39';
 import { ElectrumExplorer } from '@bitcoinerlab/explorer';
 const { BIP32 } = descriptors.DescriptorsFactory(secp256k1);
-import { DiscoveryFactory, TxStatus, Wallet } from '../../dist';
+import { DiscoveryFactory, TxStatus, Account } from '../../dist';
 
-const onWalletUsed = (wallet: Wallet) => {
-  console.log(`TRACE - onWalletUsed(${wallet}`);
+const onAccountUsed = (account: Account) => {
+  console.log(`TRACE - onAccountUsed(${account}`);
 };
 
 console.log(ElectrumExplorer);
@@ -78,24 +78,24 @@ for (const network of [networks.bitcoin]) {
           const discovery = new Discovery();
           await explorer.connect();
           console.time('FirstCall');
-          await discovery.discoverStandardWallets({
+          await discovery.discoverStandardAccounts({
             masterNode,
             network,
-            onWalletUsed
+            onAccountUsed
           });
           console.timeEnd('FirstCall');
           console.time('SecondCall');
-          await discovery.discoverStandardWallets({
+          await discovery.discoverStandardAccounts({
             masterNode,
             network,
-            onWalletUsed
+            onAccountUsed
           });
           console.timeEnd('SecondCall');
 
-          for (const wallet of discovery.getWallets({ network })) {
+          for (const account of discovery.getAccounts({ network })) {
             console.log(
               `Next external index: ${discovery.getNextIndex({
-                wallet,
+                account,
                 network,
                 isExternal: true,
                 txStatus: TxStatus.ALL
@@ -103,13 +103,13 @@ for (const network of [networks.bitcoin]) {
             );
             console.log(
               `Next internal index: ${discovery.getNextIndex({
-                wallet,
+                account,
                 network,
                 isExternal: false,
                 txStatus: TxStatus.ALL
               })}`
             );
-            const expressions = discovery.getWalletExpressions({ wallet });
+            const expressions = discovery.getAccountExpressions({ account });
             const { balance } = discovery.getUtxos({
               network,
               expressions,

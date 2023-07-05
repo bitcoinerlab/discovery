@@ -21,7 +21,7 @@ import {
   TxInfo,
   ScriptPubKeyInfo,
   Expression,
-  Wallet,
+  Account,
   DescriptorIndex,
   DescriptorInfo,
   NetworkInfo,
@@ -370,43 +370,49 @@ export function DiscoveryFactory(explorer: Explorer) {
     }
 
     /**
-     * Asynchronously discovers standard wallets (pkh, sh(wpkh), wpkh) associated
+     * Asynchronously discovers standard accounts (pkh, sh(wpkh), wpkh) associated
      * with a master node in a specific network. It uses a given gap limit for
      * wallet discovery.
      *
-     * @param {BIP32Interface} masterNode - The master node to discover wallets from.
+     * @param {BIP32Interface} masterNode - The master node to discover accounts from.
      * @param {number} gapLimit - The gap limit for address discovery (default: 20).
-     * @param {Network} network - The network in which to discover the wallets.
-     * @param {Function} onWalletUsed - Callback function called with the wallet
+     * @param {Network} network - The network in which to discover the accounts.
+     * @param {Function} onAccountUsed - Callback function called with the account
      * descriptor (external descriptor) of either the wpkh, pkh, or sh(wpkh)
      * script type if they are detected of having been used.
      *
-     * @returns {Promise<void>} - Resolves when all the wallets from the master
+     * @returns {Promise<void>} - Resolves when all the accounts from the master
      * node have been discovered.
      */
-    async discoverStandardWallets({
+    async discoverStandardAccounts({
       masterNode,
       gapLimit = 20,
       network,
-      onWalletUsed
+      onAccountUsed
     }: {
       masterNode: BIP32Interface;
       gapLimit?: number;
       network: Network;
-      onWalletUsed?: (wallet: Wallet) => void;
+      onAccountUsed?: (account: Account) => void;
     }) {
       const discoveryTasks = [];
       const { pkhBIP32, shWpkhBIP32, wpkhBIP32 } = scriptExpressions;
       for (const expressionFn of [pkhBIP32, shWpkhBIP32, wpkhBIP32]) {
-        let account = 0;
+        let accountNumber = 0;
         const next = async () => {
           const expressions = [0, 1].map(change =>
-            expressionFn({ masterNode, network, account, change, index: '*' })
+            expressionFn({
+              masterNode,
+              network,
+              account: accountNumber,
+              change,
+              index: '*'
+            })
           );
-          const wallet = expressions[0]!;
+          const account = expressions[0]!;
           //console.log('STANDARD', { expressions, gapLimit, account });
-          account++;
-          const onUsed = onWalletUsed && (() => onWalletUsed(wallet));
+          accountNumber++;
+          const onUsed = onAccountUsed && (() => onAccountUsed(account));
           await this.discover({
             expressions,
             gapLimit,
@@ -440,7 +446,8 @@ export function DiscoveryFactory(explorer: Explorer) {
     }
 
     /**
-     * Retrieves wallet descriptors grouped by wallets. A wallet is identified
+     * Retrieves all the accounts in the wallet: those descriptors with keyPaths
+     * ending in {/0/*, /1/*}. An account is identified
      * by its external descriptor `keyPath = /0/*`. The result is cached based on
      * the size specified in the constructor. As long as this cache size is not
      * exceeded, this function will maintain the same object reference per
@@ -450,30 +457,34 @@ export function DiscoveryFactory(explorer: Explorer) {
      *
      * @param {Network} network - The network associated with the descriptors.
      *
-     * @returns {Array<Expression>} - An array of wallets, each represented
+     * @returns {Array<Account>} - An array of accounts, each represented
      * as its external descriptor expression.
      */
-    getWallets({ network }: { network: Network }): Array<Wallet> {
+    getAccounts({ network }: { network: Network }): Array<Account> {
       const networkId = getNetworkId(network);
-      return this.#derivers.deriveWallets(this.discoveryInfo, networkId);
+      return this.#derivers.deriveAccounts(this.discoveryInfo, networkId);
     }
 
     /**
-     * Retrieves descriptor expressions associated with a specific wallet.
+     * Retrieves descriptor expressions associated with a specific account.
      * The result is cached based on the size specified in the constructor.
      * As long as this cache size is not exceeded, this function will maintain
      * the same object reference. This characteristic can be especially
      * beneficial in React or similar projects, where re-rendering occurs based
      * on reference changes.
      *
-     * @param {Wallet} wallet - The wallet associated with the descriptors.
+     * @param {Account} account - The account associated with the descriptors.
      *
      * @returns {Array<Expression>} - An array of descriptor expressions
-     * associated with the specified wallet.
+     * associated with the specified account.
      */
 
-    getWalletExpressions({ wallet }: { wallet: Wallet }): Array<Expression> {
-      return this.#derivers.deriveWalletExpressions(wallet);
+    getAccountExpressions({
+      account
+    }: {
+      account: Account;
+    }): Array<Expression> {
+      return this.#derivers.deriveAccountExpressions(account);
     }
 
     /**
@@ -577,17 +588,17 @@ export function DiscoveryFactory(explorer: Explorer) {
     }
 
     /**
-     * Retrieves the next available index for a given wallet within a specified network.
+     * Retrieves the next available index for a given account within a specified network.
      *
-     * The index can be either for the external or internal keys within the wallet.
+     * The index can be either for the external or internal keys within the account.
      * External keys are used for receiving funds, while internal keys
      * are used for change outputs in transactions.
      *
      * The method retrieves the currently highest index used for the respective key type
      * (external or internal), and returns the next available index by incrementing it by 1.
      *
-     * @param {Network} network - The network associated with the wallet.
-     * @param {Wallet} wallet - The wallet for which to retrieve the next available index.
+     * @param {Network} network - The network associated with the account.
+     * @param {Account} account - The account for which to retrieve the next available index.
      * @param {boolean} isExternal - If true, returns the next index for an external key.
      *                               If false, returns the next index for an internal key.
      *                               Defaults to true if not provided.
@@ -595,20 +606,20 @@ export function DiscoveryFactory(explorer: Explorer) {
      * its transaction status is txStatus
      * extracting UTXOs and balance.
      *
-     * @returns {number} - The next available index for the specified key type within the wallet.
+     * @returns {number} - The next available index for the specified key type within the account.
      */
     getNextIndex({
       network,
-      wallet,
+      account,
       isExternal = true,
       txStatus = TxStatus.ALL
     }: {
       network: Network;
-      wallet: Wallet;
+      account: Account;
       isExternal: boolean;
       txStatus?: TxStatus;
     }) {
-      const expressions = this.#derivers.deriveWalletExpressions(wallet);
+      const expressions = this.#derivers.deriveAccountExpressions(account);
       const expression = isExternal === true ? expressions[0] : expressions[1];
       if (!expression) throw new Error(`Could not retrieve a valid expression`);
 

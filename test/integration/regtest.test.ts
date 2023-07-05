@@ -1,6 +1,7 @@
 // Copyright (c) 2023 Jose-Luis Landabaso - https://bitcoinerlab.com
 // Distributed under the MIT software license
 
+//TODO: expect something on discoverStandardAccounts
 //TODO: Test immutability
 //TODO: Test this error below
 //{
@@ -26,7 +27,7 @@ const regtestUtils = new RegtestUtils();
 import {
   DiscoveryFactory,
   Discovery,
-  Wallet,
+  Account,
   TxStatus,
   DescriptorIndex,
   Utxo
@@ -39,8 +40,8 @@ const network = networks.regtest;
 const gapLimit = fixtures.regtest.gapLimit;
 const irrevConfThresh = fixtures.regtest.irrevConfThresh;
 
-const onWalletUsed = (wallet: Wallet) => {
-  console.log(`TRACE - onWalletUsed(${wallet}`);
+const onAccountUsed = (account: Account) => {
+  console.log(`TRACE - onAccountUsed(${account}`);
 };
 
 const parseScriptPubKeys = (scriptPubKeys: Record<DescriptorIndex, number>) => {
@@ -344,15 +345,15 @@ describe('Discovery on regtest', () => {
         network
       );
       test(`Discover standard with ${discoverer.name}`, async () => {
-        await discoverer.discovery!.discoverStandardWallets({
+        await discoverer.discovery!.discoverStandardAccounts({
           masterNode,
           network,
-          onWalletUsed
+          onAccountUsed
         });
       });
       //console.log(
       //  JSON.stringify(
-      //    discoverer.discovery!.getWallets({ network: networks.regtest }),
+      //    discoverer.discovery!.getAccounts({ network: networks.regtest }),
       //    null,
       //    2
       //  )

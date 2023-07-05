@@ -777,3 +777,6 @@ export function DiscoveryFactory(explorer: Explorer) {
   }
   return { Discovery };
 }
+type Discovery = InstanceType<ReturnType<typeof DiscoveryFactory>['Discovery']>;
+
+export { Discovery };

@@ -4,6 +4,8 @@
 //https://codesandbox.io/s/inspiring-spence-tbjdoj?file=/index.ts
 export const fixtures = {
   regtest: {
+    gapLimit: 10,
+    irrevConfThresh: 6,
     mnemonic: `tenant worth pistol rabbit praise drop pink toddler pony brown raven super`,
     descriptors: [
       {
@@ -11,9 +13,9 @@ export const fixtures = {
           "pkh([a0809f04/44'/1'/0']tpubDDZgrqYqZ8KhKDKYp1Skpg4S11C3PptLU5LgTg57HY6B3qEYb571N2AQUbRoAZduqtKnBDJDerXS588TKTcB3AP7rpoeUHu49mqZz4Ctnjp/100/*)",
         scriptPubKeys: {
           1: 100000000,
-          12: 5000000,
-          34: 6000,
-          55: 1500000000
+          4: 5000000,
+          14: 6000,
+          25: 1500000000
         }
       },
       {
@@ -29,7 +31,7 @@ export const fixtures = {
       {
         expression:
           "pkh([a0809f04/44'/1'/2']tpubDDZgrqYqZ8KhRWoLmi9dXgxi14b3wuD9afKWgf4t2dGSUaEWmNsZ9Xwa6MxtLA2WakTSVpNL4MGrHBFs9TRr99p9GLN5arF8PWnZNn7P2Gp/100/*)",
-        scriptPubKeys: { 0: 123123 },
+        scriptPubKeys: {},
         error:
           "The provided scriptPubKey is already set: pkh([a0809f04/44'/1'/2']tpubDDZgrqYqZ8KhRWoLmi9dXgxi14b3wuD9afKWgf4t2dGSUaEWmNsZ9Xwa6MxtLA2WakTSVpNL4MGrHBFs9TRr99p9GLN5arF8PWnZNn7P2Gp/100/0), non-ranged."
       }

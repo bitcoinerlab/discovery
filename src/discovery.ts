@@ -146,11 +146,12 @@ export function DiscoveryFactory(explorer: Explorer) {
      * This method is useful for updating the state of the wallet based on new
      * transactions and scriptPubKeys.
      *
-     * @param {Expression} expression - The descriptor expression associated with
+     * @param {object} params - Parameters
+     * @param {Expression} params.expression - The descriptor expression associated with
      * the scriptPubKey to discover.
-     * @param {DescriptorIndex} index - The descriptor index associated with the
+     * @param {DescriptorIndex} params.index - The descriptor index associated with the
      * scriptPubKey to discover.
-     * @param {Network} network - The network associated with the scriptPubKey to
+     * @param {Network} params.network - The network associated with the scriptPubKey to
      * discover.
      *
      * @returns {Promise<boolean>} - A promise that resolves to a boolean
@@ -233,7 +234,8 @@ export function DiscoveryFactory(explorer: Explorer) {
     /**
      * Asynchronously fetches all transactions associated with a specific network.
      *
-     * @param {Network} network - The network whose transactions are to be fetched.
+     * @param {object} params - Parameters
+     * @param {Network} params.network - The network whose transactions are to be fetched.
      *
      * @returns {Promise<void>} - Resolves when all the transactions for the
      * provided network have been fetched and stored in discoveryInfo.
@@ -275,12 +277,13 @@ export function DiscoveryFactory(explorer: Explorer) {
      *
      * @param {Expression | Array<Expression>} expressions - The descriptor
      * expression(s) to be fetched. Can be a single expression or an array.
-     * @param {number} [gapLimit=20] - The gap limit for the fetch operation.
+     * @param {object} params - Parameters
+     * @param {number} [params.gapLimit=20] - The gap limit for the fetch operation.
      * The default value is 20.
-     * @param {Network} network - The network associated with the expressions.
-     * @param {Function} [onUsed] - Optional callback function. Invoked when a
+     * @param {Network} params.network - The network associated with the expressions.
+     * @param {Function} [params.onUsed] - Optional callback function. Invoked when a
      * used expression is found. Provided with the same input descriptor expressions.
-     * @param {Function} [next] - Optional function that returns a Promise. Invoked
+     * @param {Function} [params.next] - Optional function that returns a Promise. Invoked
      * once a used expression is found and the Promise it returns is awaited.
      *
      * @returns {Promise<void>} - Resolves when the fetch operation completes. If
@@ -374,10 +377,11 @@ export function DiscoveryFactory(explorer: Explorer) {
      * with a master node in a specific network. It uses a given gap limit for
      * wallet discovery.
      *
-     * @param {BIP32Interface} masterNode - The master node to discover accounts from.
-     * @param {number} gapLimit - The gap limit for address discovery (default: 20).
-     * @param {Network} network - The network in which to discover the accounts.
-     * @param {Function} onAccountUsed - Callback function called with the account
+     * @param {object} params - Parameters
+     * @param {BIP32Interface} params.masterNode - The master node to discover accounts from.
+     * @param {number} params.gapLimit - The gap limit for address discovery (default: 20).
+     * @param {Network} params.network - The network in which to discover the accounts.
+     * @param {Function} params.onAccountUsed - Callback function called with the account
      * descriptor (external descriptor) of either the wpkh, pkh, or sh(wpkh)
      * script type if they are detected of having been used.
      *
@@ -503,12 +507,13 @@ export function DiscoveryFactory(explorer: Explorer) {
      * This can be useful in environments such as React where
      * preserving object identity can prevent unnecessary re-renders.
      *
-     * @param {Expression} expression - The descriptor expression associated with
+     * @param {object} params - Parameters
+     * @param {Expression} params.expression - The descriptor expression associated with
      * the scriptPubKey.
-     * @param {DescriptorIndex} index - The descriptor index associated with the
+     * @param {DescriptorIndex} params.index - The descriptor index associated with the
      * scriptPubKey.
-     * @param {Network} network - The network associated with the scriptPubKey.
-     * @param {TxStatus} [txStatus=TxStatus.ALL] - The transaction status to consider when
+     * @param {Network} params.network - The network associated with the scriptPubKey.
+     * @param {TxStatus} [params.txStatus=TxStatus.ALL] - The transaction status to consider when
      * extracting UTXOs and balance.
      *
      * @returns {Object} - An object containing the UTXOs associated with the
@@ -555,11 +560,12 @@ export function DiscoveryFactory(explorer: Explorer) {
      * This can be useful in environments such as React where
      * preserving object identity can prevent unnecessary re-renders.
      *
-     * @param {Expression | Array<Expression>} expressions - The descriptor
+     * @param {object} params - Parameters
+     * @param {Expression | Array<Expression>} params.expressions - The descriptor
      * expression(s) associated with the scriptPubKeys. Can be a single
      * expression or an array of expressions.
-     * @param {Network} network - The network associated with the scriptPubKeys.
-     * @param {TxStatus} [txStatus=TxStatus.ALL] - The transaction status to consider when
+     * @param {Network} params.network - The network associated with the scriptPubKeys.
+     * @param {TxStatus} [params.txStatus=TxStatus.ALL] - The transaction status to consider when
      * extracting UTXOs and balance.
      *
      * @returns {Object} - An object containing the UTXOs associated with the
@@ -597,12 +603,13 @@ export function DiscoveryFactory(explorer: Explorer) {
      * The method retrieves the currently highest index used for the respective key type
      * (external or internal), and returns the next available index by incrementing it by 1.
      *
-     * @param {Network} network - The network associated with the account.
-     * @param {Account} account - The account for which to retrieve the next available index.
-     * @param {boolean} isExternal - If true, returns the next index for an external key.
+     * @param {object} params - Parameters
+     * @param {Network} params.network - The network associated with the account.
+     * @param {Account} params.account - The account for which to retrieve the next available index.
+     * @param {boolean} params.isExternal - If true, returns the next index for an external key.
      *                               If false, returns the next index for an internal key.
      *                               Defaults to true if not provided.
-     * @param {TxStatus} [txStatus=TxStatus.ALL] - A scriptPubKey will be considered as used when
+     * @param {TxStatus} [params.txStatus=TxStatus.ALL] - A scriptPubKey will be considered as used when
      * its transaction status is txStatus
      * extracting UTXOs and balance.
      *
@@ -731,8 +738,9 @@ export function DiscoveryFactory(explorer: Explorer) {
      * discoveryInfo given the transaction ID (TxId) or a Unspent Transaction Output (Utxo)
      * as well as the network in which the transaction occurred.
      *
-     * @param {Network} network - The network where the transaction took place.
-     * @param {TxId | Utxo} tx - The transaction ID or a UTXO.
+     * @param {object} params - Parameters
+     * @param {Network} params.network - The network where the transaction took place.
+     * @param {TxId | Utxo} params.tx - The transaction ID or a UTXO.
      *
      * @returns {TxHex} - The hexadecimal representation of the transaction.
      *
@@ -757,8 +765,9 @@ export function DiscoveryFactory(explorer: Explorer) {
      * The data will have already been computed and cached for efficiency within
      * the Discovery class.
      *
-     * @param {Network} network - The network where the transaction took place.
-     * @param {TxId | Utxo} tx - The transaction ID or a UTXO.
+     * @param {object} params - Parameters
+     * @param {Network} params.network - The network where the transaction took place.
+     * @param {TxId | Utxo} params.tx - The transaction ID or a UTXO.
      *
      * @returns {Transaction} - The transaction data as a Transaction object.
      */

@@ -37,12 +37,16 @@ const now = () => Math.floor(Date.now() / 1000);
  * using descriptors. The class provides methods for descriptor expression discovery,
  * balance checking, transaction status checking, and so on.
  *
- * @param {Explorer} explorer - The explorer instance that communicates with the
- * Bitcoin network. It is responsible for fetching blockchain data like UTXOs,
- * transaction details etc.
- * @returns {Discovery} A Discovery class, constructed with the given explorer instance.
+ * @returns A Discovery class, constructed with the given explorer instance.
  */
-export function DiscoveryFactory(explorer: Explorer) {
+export function DiscoveryFactory(
+  /**
+   * The explorer instance that communicates with the
+   * Bitcoin network. It is responsible for fetching blockchain data like UTXOs,
+   * transaction details, etc.
+   */
+  explorer: Explorer
+) {
   /**
    * A class to discover funds in a Bitcoin wallet using descriptors.
    */
@@ -53,19 +57,38 @@ export function DiscoveryFactory(explorer: Explorer) {
     /**
      * Constructs a Discovery instance. Discovery is used to discover funds
      * in a Bitcoin wallet using descriptors.
-     *
-     * @param {object} [options] - Optional parameters.
-     * @param {number} [options.expressionsCacheSize=1000] - Cache size limit
-     * for descriptor expressions. Set to 0 for unbounded caches.
-     * @param {number} [options.indicesPerExpessionCacheSize=10000] - Cache size
-     * limit for indices per expression. Set to 0 for unbounded caches.
      */
     constructor(
       {
         expressionsCacheSize = 1000,
         indicesPerExpessionCacheSize = 10000
       }: {
+        /**
+         * Cache size limit for descriptor expressions per network.
+         * The cache is used to speed up data queries by avoiding unnecessary
+         * recomputations. However, it is essential to manage the memory
+         * usage of the application. If the cache size is unbounded, it could lead
+         * to excessive memory usage and degrade the application's performance,
+         * especially when dealing with a large number of descriptor expressions.
+         * On the other hand, a very small cache size may lead to more frequent cache
+         * evictions, causing the library to return a different reference for the same data
+         * when the same method is called multiple times, even if the underlying data has not
+         * changed. This is contrary to the immutability principles that the library is built upon.
+         * Ultimately, this limit acts as a trade-off between memory usage, computational efficiency,
+         * and immutability. Set to 0 for unbounded caches.
+         * @defaultValue 1000
+         */
         expressionsCacheSize: number;
+        /**
+         * Cache size limit for indices per expression, related to the number of addresses
+         * in ranged descriptor expressions. Similar to the `expressionsCacheSize`,
+         * this cache is used to speed up data queries and avoid recomputations.
+         * As each expression can have multiple indices, the number of indices can grow rapidly,
+         * leading to increased memory usage. Setting a limit helps keep memory usage in check,
+         * while also maintaining the benefits of immutability and computational efficiency.
+         * Set to 0 for unbounded caches.
+         * @defaultValue 10000
+         */
         indicesPerExpessionCacheSize: number;
       } = {
         expressionsCacheSize: 1000,
@@ -94,17 +117,20 @@ export function DiscoveryFactory(explorer: Explorer) {
      * transaction outputs (utxos) and balances when different descriptors could
      * represent the same scriptPubKey (e.g., xpub vs wif).
      *
+     * @throws If the scriptPubKey is not unique.
      * @private
-     * @param {object} params - Parameters
-     * @param {Network} params.network - Network to check
-     * @param {Buffer} params.scriptPubKey - The scriptPubKey to check for uniqueness
-     * @throws {Error} If the scriptPubKey is not unique
      */
     #ensureScriptPubKeyUniqueness({
       networkId,
       scriptPubKey
     }: {
+      /**
+       * Network to check.
+       */
       networkId: NetworkId;
+      /**
+       * The scriptPubKey to check for uniqueness.
+       */
       scriptPubKey: Buffer;
     }) {
       const descriptors = this.discoveryInfo[networkId].descriptors;
@@ -146,26 +172,24 @@ export function DiscoveryFactory(explorer: Explorer) {
      * This method is useful for updating the state of the wallet based on new
      * transactions and scriptPubKeys.
      *
-     * @param {object} params - Parameters
-     * @param {Expression} params.expression - The descriptor expression associated with
-     * the scriptPubKey to discover.
-     * @param {DescriptorIndex} params.index - The descriptor index associated with the
-     * scriptPubKey to discover.
-     * @param {Network} params.network - The network associated with the scriptPubKey to
-     * discover.
-     *
-     * @returns {Promise<boolean>} - A promise that resolves to a boolean
-     * indicating whether any transactions were found for the provided
-     * scriptPubKey.
+     * @returns A promise that resolves to a boolean indicating whether any transactions were found for the provided scriptPubKey.
      */
-
     async discoverScriptPubKey({
       expression,
       index,
       network
     }: {
+      /**
+       * The descriptor expression associated with the scriptPubKey to discover.
+       */
       expression: Expression;
+      /**
+       * The descriptor index associated with the scriptPubKey to discover.
+       */
       index: DescriptorIndex;
+      /**
+       * The network associated with the scriptPubKey to discover.
+       */
       network: Network;
     }): Promise<boolean> {
       expression = canonicalize(expression, network) as string;
@@ -234,14 +258,16 @@ export function DiscoveryFactory(explorer: Explorer) {
     /**
      * Asynchronously fetches all transactions associated with a specific network.
      *
-     * @param {object} params - Parameters
-     * @param {Network} params.network - The network whose transactions are to be fetched.
-     *
-     * @returns {Promise<void>} - Resolves when all the transactions for the
-     * provided network have been fetched and stored in discoveryInfo.
-     *
+     * @returns Resolves when all the transactions for the provided network have been fetched and stored in discoveryInfo.
      */
-    async discoverTxs({ network }: { network: Network }) {
+    async discoverTxs({
+      network
+    }: {
+      /**
+       * The network whose transactions are to be fetched.
+       */
+      network: Network;
+    }) {
       const txHexRecords: Record<TxId, TxHex> = {};
       const networkId = getNetworkId(network);
       const networkInfo = this.discoveryInfo[networkId];
@@ -275,19 +301,7 @@ export function DiscoveryFactory(explorer: Explorer) {
     /**
      * Asynchronously fetches one or more descriptor expressions.
      *
-     * @param {Expression | Array<Expression>} expressions - The descriptor
-     * expression(s) to be fetched. Can be a single expression or an array.
-     * @param {object} params - Parameters
-     * @param {number} [params.gapLimit=20] - The gap limit for the fetch operation.
-     * The default value is 20.
-     * @param {Network} params.network - The network associated with the expressions.
-     * @param {Function} [params.onUsed] - Optional callback function. Invoked when a
-     * used expression is found. Provided with the same input descriptor expressions.
-     * @param {Function} [params.next] - Optional function that returns a Promise. Invoked
-     * once a used expression is found and the Promise it returns is awaited.
-     *
-     * @returns {Promise<void>} - Resolves when the fetch operation completes. If
-     * used expressions are found, waits for the discovery of associated transactions.
+     * @returns Resolves when the fetch operation completes. If used expressions are found, waits for the discovery of associated transactions.
      */
     async discover({
       expressions,
@@ -296,10 +310,26 @@ export function DiscoveryFactory(explorer: Explorer) {
       onUsed,
       next
     }: {
+      /**
+       * The descriptor expression(s) to be fetched. Can be a single expression or an array.
+       */
       expressions: Expression | Array<Expression>;
+      /**
+       * The gap limit for the fetch operation.
+       * @defaultValue 20
+       */
       gapLimit?: number;
+      /**
+       * The network associated with the expressions.
+       */
       network: Network;
+      /**
+       * Optional callback function. Invoked when a used expression is found. Provided with the same input descriptor expressions.
+       */
       onUsed?: (expression: Expression | Array<Expression>) => void;
+      /**
+       * Optional function that returns a Promise. Invoked once a used expression is found and the Promise it returns is awaited.
+       */
       next?: () => Promise<void>;
     }) {
       const inputExpressions = expressions;
@@ -377,16 +407,7 @@ export function DiscoveryFactory(explorer: Explorer) {
      * with a master node in a specific network. It uses a given gap limit for
      * wallet discovery.
      *
-     * @param {object} params - Parameters
-     * @param {BIP32Interface} params.masterNode - The master node to discover accounts from.
-     * @param {number} params.gapLimit - The gap limit for address discovery (default: 20).
-     * @param {Network} params.network - The network in which to discover the accounts.
-     * @param {Function} params.onAccountUsed - Callback function called with the account
-     * descriptor (external descriptor) of either the wpkh, pkh, or sh(wpkh)
-     * script type if they are detected of having been used.
-     *
-     * @returns {Promise<void>} - Resolves when all the accounts from the master
-     * node have been discovered.
+     * @returns Resolves when all the accounts from the master node have been discovered.
      */
     async discoverStandardAccounts({
       masterNode,
@@ -394,9 +415,24 @@ export function DiscoveryFactory(explorer: Explorer) {
       network,
       onAccountUsed
     }: {
+      /**
+       * The master node to discover accounts from.
+       */
       masterNode: BIP32Interface;
+      /**
+       * The gap limit for address discovery
+       * @defaultValue 20
+       */
       gapLimit?: number;
+      /**
+       * The network in which to discover the accounts.
+       */
       network: Network;
+      /*
+       * Callback function called with the account
+       * descriptor (external descriptor) of either the wpkh, pkh, or sh(wpkh)
+       * script type if they are detected of having been used.
+       */
       onAccountUsed?: (account: Account) => void;
     }) {
       const discoveryTasks = [];
@@ -438,13 +474,18 @@ export function DiscoveryFactory(explorer: Explorer) {
      * This characteristic can be particularly beneficial in
      * React and similar projects, where re-rendering occurs based on reference changes.
      *
-     * @param {Network} network - The network associated with the descriptors.
-     *
-     * @returns {Array<Expression>} - Returns an array of descriptor expressions.
+     * @returns Returns an array of descriptor expressions.
      * These are derived from the discovery information of the wallet and the
      * provided network.
      */
-    getExpressions({ network }: { network: Network }): Array<Expression> {
+    getExpressions({
+      network
+    }: {
+      /**
+       * The network associated with the descriptors.
+       */
+      network: Network;
+    }): Array<Expression> {
       const networkId = getNetworkId(network);
       return this.#derivers.deriveExpressions(this.discoveryInfo, networkId);
     }
@@ -459,12 +500,17 @@ export function DiscoveryFactory(explorer: Explorer) {
      * This characteristic can be especially beneficial in
      * React or similar projects, where re-rendering occurs based on reference changes.
      *
-     * @param {Network} network - The network associated with the descriptors.
-     *
-     * @returns {Array<Account>} - An array of accounts, each represented
+     * @returns An array of accounts, each represented
      * as its external descriptor expression.
      */
-    getAccounts({ network }: { network: Network }): Array<Account> {
+    getAccounts({
+      network
+    }: {
+      /**
+       * The network associated with the descriptors.
+       */
+      network: Network;
+    }): Array<Account> {
       const networkId = getNetworkId(network);
       return this.#derivers.deriveAccounts(this.discoveryInfo, networkId);
     }
@@ -477,15 +523,15 @@ export function DiscoveryFactory(explorer: Explorer) {
      * beneficial in React or similar projects, where re-rendering occurs based
      * on reference changes.
      *
-     * @param {Account} account - The account associated with the descriptors.
-     *
-     * @returns {Array<Expression>} - An array of descriptor expressions
+     * @returns An array of descriptor expressions
      * associated with the specified account.
      */
-
     getAccountExpressions({
       account
     }: {
+      /**
+       * The account associated with the descriptors.
+       */
       account: Account;
     }): Array<Expression> {
       return this.#derivers.deriveAccountExpressions(account);
@@ -507,16 +553,7 @@ export function DiscoveryFactory(explorer: Explorer) {
      * This can be useful in environments such as React where
      * preserving object identity can prevent unnecessary re-renders.
      *
-     * @param {object} params - Parameters
-     * @param {Expression} params.expression - The descriptor expression associated with
-     * the scriptPubKey.
-     * @param {DescriptorIndex} params.index - The descriptor index associated with the
-     * scriptPubKey.
-     * @param {Network} params.network - The network associated with the scriptPubKey.
-     * @param {TxStatus} [params.txStatus=TxStatus.ALL] - The transaction status to consider when
-     * extracting UTXOs and balance.
-     *
-     * @returns {Object} - An object containing the UTXOs associated with the
+     * @returns An object containing the UTXOs associated with the
      * scriptPubKey and the total balance of these UTXOs.
      */
     getUtxosByScriptPubKey({
@@ -525,9 +562,22 @@ export function DiscoveryFactory(explorer: Explorer) {
       network,
       txStatus = TxStatus.ALL
     }: {
+      /**
+       * The descriptor expression associated with the scriptPubKey.
+       */
       expression: Expression;
+      /**
+       * The descriptor index associated with the scriptPubKey.
+       */
       index: DescriptorIndex;
+      /**
+       * The network associated with the scriptPubKey.
+       */
       network: Network;
+      /**
+       * The transaction status to consider when extracting UTXOs and balance.
+       * @defaultValue TxStatus.ALL
+       */
       txStatus?: TxStatus;
     }): { utxos: Array<Utxo>; balance: number } {
       expression = canonicalize(expression, network) as string;
@@ -560,15 +610,7 @@ export function DiscoveryFactory(explorer: Explorer) {
      * This can be useful in environments such as React where
      * preserving object identity can prevent unnecessary re-renders.
      *
-     * @param {object} params - Parameters
-     * @param {Expression | Array<Expression>} params.expressions - The descriptor
-     * expression(s) associated with the scriptPubKeys. Can be a single
-     * expression or an array of expressions.
-     * @param {Network} params.network - The network associated with the scriptPubKeys.
-     * @param {TxStatus} [params.txStatus=TxStatus.ALL] - The transaction status to consider when
-     * extracting UTXOs and balance.
-     *
-     * @returns {Object} - An object containing the UTXOs associated with the
+     * @returns An object containing the UTXOs associated with the
      * scriptPubKeys and the total balance of these UTXOs.
      */
     getUtxos({
@@ -576,8 +618,19 @@ export function DiscoveryFactory(explorer: Explorer) {
       network,
       txStatus = TxStatus.ALL
     }: {
+      /**
+       * The descriptor expression(s) associated with the scriptPubKeys.
+       * Can be a single expression or an array of expressions.
+       */
       expressions: Expression | Array<Expression>;
+      /**
+       * The network associated with the scriptPubKeys.
+       */
       network: Network;
+      /**
+       * The transaction status to consider when extracting UTXOs and balance.
+       * @defaultValue TxStatus.ALL
+       */
       txStatus?: TxStatus;
     }): { utxos: Array<Utxo>; balance: number } {
       expressions = canonicalize(expressions, network);
@@ -603,17 +656,7 @@ export function DiscoveryFactory(explorer: Explorer) {
      * The method retrieves the currently highest index used for the respective key type
      * (external or internal), and returns the next available index by incrementing it by 1.
      *
-     * @param {object} params - Parameters
-     * @param {Network} params.network - The network associated with the account.
-     * @param {Account} params.account - The account for which to retrieve the next available index.
-     * @param {boolean} params.isExternal - If true, returns the next index for an external key.
-     *                               If false, returns the next index for an internal key.
-     *                               Defaults to true if not provided.
-     * @param {TxStatus} [params.txStatus=TxStatus.ALL] - A scriptPubKey will be considered as used when
-     * its transaction status is txStatus
-     * extracting UTXOs and balance.
-     *
-     * @returns {number} - The next available index for the specified key type within the account.
+     * @returns The next available index for the specified key type within the account.
      */
     getNextIndex({
       network,
@@ -621,9 +664,27 @@ export function DiscoveryFactory(explorer: Explorer) {
       isExternal = true,
       txStatus = TxStatus.ALL
     }: {
+      /**
+       * The network associated with the account.
+       */
       network: Network;
+      /**
+       * The account for which to retrieve the next available index.
+       */
       account: Account;
+      /**
+       * If true, returns the next index for an external key.
+       * If false, returns the next index for an internal key.
+       * Defaults to true if not provided.
+       * @defaultValue true
+       */
       isExternal: boolean;
+      /**
+       * A scriptPubKey will be considered as used when
+       * its transaction status is txStatus
+       * extracting UTXOs and balance.
+       * @defaultValue TxStatus.ALL
+       */
       txStatus?: TxStatus;
     }) {
       const expressions = this.#derivers.deriveAccountExpressions(account);
@@ -661,12 +722,7 @@ export function DiscoveryFactory(explorer: Explorer) {
      * This can be useful in environments such as React where preserving object identity can
      * prevent unnecessary re-renders.
      *
-     * @param {Expression} params.expression - The descriptor expression.
-     * @param {DescriptorIndex} params.index - The index in the descriptor.
-     * @param {Network} params.network - The network associated with the scriptPubKey.
-     * @param {TxStatus} [params.txStatus=TxStatus.ALL] - The transaction status to consider when fetching transaction history.
-     *
-     * @returns {Array<TxInfo>} - An array containing transaction info associated with the script public key.
+     * @returns An array containing transaction info associated with the script public key.
      */
     getHistoryByScriptPubKey({
       expression,
@@ -674,9 +730,22 @@ export function DiscoveryFactory(explorer: Explorer) {
       network,
       txStatus = TxStatus.ALL
     }: {
+      /**
+       * The descriptor expression.
+       */
       expression: Expression;
+      /**
+       * The index in the descriptor.
+       */
       index: DescriptorIndex;
+      /**
+       * The network associated with the scriptPubKey.
+       */
       network: Network;
+      /**
+       * The transaction status to consider when fetching transaction history.
+       * @defaultValue TxStatus.ALL
+       */
       txStatus?: TxStatus;
     }): Array<TxInfo> {
       expression = canonicalize(expression, network) as string;
@@ -706,19 +775,25 @@ export function DiscoveryFactory(explorer: Explorer) {
      * This can be useful in environments such as React where preserving object identity can
      * prevent unnecessary re-renders.
      *
-     * @param {Expression | Array<Expression>} params.expressions - One or more descriptor expressions.
-     * @param {Network} params.network - The network associated with the descriptor expressions.
-     * @param {TxStatus} [params.txStatus=TxStatus.ALL] - The transaction status to consider when fetching transaction history.
-     *
-     * @returns {Array<TxInfo>} - An array containing transaction info associated with the descriptor expressions.
+     * @returns An array containing transaction info associated with the descriptor expressions.
      */
     getHistory({
       expressions,
       network,
       txStatus = TxStatus.ALL
     }: {
+      /**
+       * One or more descriptor expressions.
+       */
       expressions: Expression | Array<Expression>;
+      /**
+       * The network associated with the descriptor expressions.
+       */
       network: Network;
+      /**
+       * The transaction status to consider when fetching transaction history.
+       * @defaultValue TxStatus.ALL
+       */
       txStatus?: TxStatus;
     }): Array<TxInfo> {
       expressions = canonicalize(expressions, network);
@@ -738,15 +813,23 @@ export function DiscoveryFactory(explorer: Explorer) {
      * discoveryInfo given the transaction ID (TxId) or a Unspent Transaction Output (Utxo)
      * as well as the network in which the transaction occurred.
      *
-     * @param {object} params - Parameters
-     * @param {Network} params.network - The network where the transaction took place.
-     * @param {TxId | Utxo} params.tx - The transaction ID or a UTXO.
-     *
-     * @returns {TxHex} - The hexadecimal representation of the transaction.
+     * @returns The hexadecimal representation of the transaction.
      *
      * @throws Will throw an error if the transaction ID is invalid or if the TxHex is not found.
      */
-    getTxHex({ network, tx }: { network: Network; tx: TxId | Utxo }): TxHex {
+    getTxHex({
+      network,
+      tx
+    }: {
+      /**
+       * The network where the transaction took place.
+       */
+      network: Network;
+      /**
+       * The transaction ID or a UTXO.
+       */
+      tx: TxId | Utxo;
+    }): TxHex {
       const networkId = getNetworkId(network);
       const txId = tx.indexOf(':') === -1 ? tx : tx.split(':')[0];
       if (!txId) throw new Error(`Error: invalid tx`);
@@ -754,6 +837,7 @@ export function DiscoveryFactory(explorer: Explorer) {
       if (!txHex) throw new Error(`Error: txHex not found`);
       return txHex;
     }
+
     /**
      * Retrieves the transaction data as a Transaction object given the transaction
      * ID (TxId) or a Unspent Transaction Output (Utxo) and the network in which
@@ -765,17 +849,19 @@ export function DiscoveryFactory(explorer: Explorer) {
      * The data will have already been computed and cached for efficiency within
      * the Discovery class.
      *
-     * @param {object} params - Parameters
-     * @param {Network} params.network - The network where the transaction took place.
-     * @param {TxId | Utxo} params.tx - The transaction ID or a UTXO.
-     *
-     * @returns {Transaction} - The transaction data as a Transaction object.
+     * @returns The transaction data as a Transaction object.
      */
     getTransaction({
       network,
       tx
     }: {
+      /**
+       * The network where the transaction took place.
+       */
       network: Network;
+      /**
+       * The transaction ID or a UTXO.
+       */
       tx: TxId | Utxo;
     }): Transaction {
       const txHex = this.getTxHex({ network, tx });
@@ -787,7 +873,7 @@ export function DiscoveryFactory(explorer: Explorer) {
      * includes details about transactions, descriptors, and network-specific
      * details that are stored during the wallet discovery process.
      *
-     * @returns {DiscoveryInfo} - The current state of the discovery information.
+     * @returns The current state of the discovery information.
      */
     getDiscoveryInfo() {
       return this.discoveryInfo;

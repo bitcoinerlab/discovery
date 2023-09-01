@@ -49,6 +49,8 @@ export function DiscoveryFactory(
 ) {
   /**
    * A class to discover funds in a Bitcoin wallet using descriptors.
+   * The {@link DiscoveryFactory | `DiscoveryFactory`} function internally creates and returns an instance of this class.
+   * The returned class is specialized for the provided `Explorer`, which is responsible for fetching blockchain data like transaction details.
    */
   class Discovery {
     #derivers: ReturnType<typeof deriveDataFactory>;
@@ -61,7 +63,7 @@ export function DiscoveryFactory(
     constructor(
       {
         expressionsCacheSize = 1000,
-        indicesPerExpessionCacheSize = 10000
+        indicesPerExpressionCacheSize = 10000
       }: {
         /**
          * Cache size limit for descriptor expressions per network.
@@ -89,10 +91,10 @@ export function DiscoveryFactory(
          * Set to 0 for unbounded caches.
          * @defaultValue 10000
          */
-        indicesPerExpessionCacheSize: number;
+        indicesPerExpressionCacheSize: number;
       } = {
         expressionsCacheSize: 1000,
-        indicesPerExpessionCacheSize: 10000
+        indicesPerExpressionCacheSize: 10000
       }
     ) {
       this.discoveryInfo = {} as DiscoveryInfo;
@@ -107,7 +109,7 @@ export function DiscoveryFactory(
       }
       this.#derivers = deriveDataFactory({
         expressionsCacheSize,
-        indicesPerExpessionCacheSize
+        indicesPerExpressionCacheSize
       });
     }
 
@@ -881,6 +883,14 @@ export function DiscoveryFactory(
   }
   return { Discovery };
 }
+
+/**
+ * The {@link DiscoveryFactory | `DiscoveryFactory`} function internally creates and returns an instance of the {@link _Internal_.Discovery | `Discovery`} class.
+ * This instance is specialized for the provided `Explorer`, which is responsible for fetching blockchain data like transaction details.
+ *
+ * See the {@link _Internal_.Discovery | documentation for the internal Discovery class} for a complete list of available methods.
+ */
+
 type Discovery = InstanceType<ReturnType<typeof DiscoveryFactory>['Discovery']>;
 
 export { Discovery };

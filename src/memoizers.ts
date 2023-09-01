@@ -1,21 +1,26 @@
 import { shallowEqualArrays } from 'shallow-equal';
 
 /**
- * This function is an extension of memoizee which stores the result of the latest call (cache size one).
- * If the arguments for the current call are the same as the latest call, it will return the same result.
- * If the arguments are different, but the returned Array is shallowly equal to the previous one, it still returns the same object.
+ * This function is an extension of memoizee which stores the result of the
+ * latest call (cache size one). It is designed to work with functions that
+ * return arrays. If the arguments for the current call are the same as the
+ * latest call, it will return the same result. If the arguments are different,
+ * but the returned array is shallowly equal to the previous one, it still
+ * returns the same object.
  *
- * @template T - The type of input arguments to the function to be memoized.
- * @template R - The type of the return value of the function to be memoized.
- * @param {(...args: T) => R} func - The function to be memoized.
- * @returns {(...args: T) => R} A memoized version of the input function.
+ * @param {Function} func - The function to be memoized. Must return an array.
+ * @returns {Function} A memoized version of the input function. Returns an array.
  *
  * @example
  * const memoizedFunc = memoizeOneWithShallowArraysCheck(myFunc);
  * const result1 = memoizedFunc(arg1, arg2);
- * const result2 = memoizedFunc(arg1, arg2); // Will return the same object as result1
- * const result3 = memoizedFunc(arg3, arg4); // If the result is shallowly equal to result1, it will still return the same object as result1
+ * const result2 = memoizedFunc(arg1, arg2);
+ * // Will return the same object as result1
+ * const result3 = memoizedFunc(arg3, arg4);
+ * // If the result is shallowly equal to result1, it will still return the
+ * // same object as result1
  */
+
 export function memoizeOneWithShallowArraysCheck<
   T extends unknown[],
   R extends unknown[]
@@ -31,6 +36,9 @@ export function memoizeOneWithShallowArraysCheck<
     lastArgs = args;
 
     const newResult = func(...args);
+    if (!Array.isArray(newResult)) {
+      throw new Error('Function must return an array');
+    }
 
     if (lastResult && shallowEqualArrays(lastResult, newResult)) {
       // If the new result is shallowly equal to the last result, return the last result

@@ -7,7 +7,7 @@
   "types": "dist/index.d.ts",
   "NOTE": "--openHandlesTimeout=4000 is important here because of native fetch leaves open handles for a few seconds even after correct await response - even when all fetch requests are correctly awaited and the responses are consumed, the underlying connections created by Node.js can remain open due to connection pooling, which Jest interprets as an open handle. Alternatively, put this into the code: await new Promise(resolve => setTimeout(resolve, 4000));",
   "scripts": {
-    "docs": "typedoc --plugin typedoc-plugin-missing-exports src/index.ts",
+    "docs": "typedoc --options ./typedoc.json",
     "build:src": "tsc --project tsconfig.src.json",
     "build:test": "tsc --project tsconfig.test.json",
     "build": "npm run build:src && npm run build:test",

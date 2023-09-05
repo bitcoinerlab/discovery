@@ -1,29 +1,29 @@
 {
   "name": "@bitcoinerlab/discovery",
+  "author": "Jose-Luis Landabaso",
+  "license": "MIT",
   "homepage": "https://github.com/bitcoinerlab/discovery",
   "version": "0.0.1",
   "description": "A TypeScript library for retrieving Bitcoin funds from ranged descriptors, leveraging @bitcoinerlab/explorer for standardized access to multiple blockchain explorers.",
+  "prettier": "@bitcoinerlab/configs/prettierConfig.json",
+  "eslintConfig": {
+    "extends": "./node_modules/@bitcoinerlab/configs/eslintConfig"
+  },
+  "jest": {
+    "preset": "@bitcoinerlab/configs"
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "NOTE": "--openHandlesTimeout=4000 is important here because of native fetch leaves open handles for a few seconds even after correct await response - even when all fetch requests are correctly awaited and the responses are consumed, the underlying connections created by Node.js can remain open due to connection pooling, which Jest interprets as an open handle. Alternatively, put this into the code: await new Promise(resolve => setTimeout(resolve, 4000));",
   "scripts": {
-    "docs": "typedoc --options ./typedoc.json",
-    "build:src": "tsc --project tsconfig.src.json",
-    "build:test": "tsc --project tsconfig.test.json",
+    "docs": "typedoc --options ./node_modules/@bitcoinerlab/configs/typedoc.json",
+    "build:src": "tsc --project ./node_modules/@bitcoinerlab/configs/tsconfig.src.json",
+    "build:test": "tsc --project ./node_modules/@bitcoinerlab/configs/tsconfig.test.json",
     "build": "npm run build:src && npm run build:test",
     "lint": "eslint --ignore-path .gitignore --ext .ts src/ test/",
     "updatelocalexplorer": "cd ../explorer && npm run build && npm pack && mv *.tgz ../discovery && cd ../discovery && npm uninstall @bitcoinerlab/explorer && npm install ./bitcoinerlab-explorer-*.tgz && rm ./bitcoinerlab-explorer-*.tgz",
-    "tester": "docker images | grep -q bitcoinerlab/tester || docker pull bitcoinerlab/tester; docker rm -f $(docker ps -a -q -f ancestor=bitcoinerlab/tester) > /dev/null 2>&1; docker run -d -p 8080:8080 -p 60401:60401 -p 3002:3002 bitcoinerlab/tester",
-    "test": "npm run lint && npm run build && npm run tester && NODE_OPTIONS=\"--experimental-fetch\" jest --openHandlesTimeout=4000 --",
+    "tester": "./node_modules/@bitcoinerlab/configs/scripts/tester.sh",
+    "test": "./node_modules/@bitcoinerlab/configs/scripts/test.sh",
     "prepublishOnly": "npm test"
-  },
-  "jest": {
-    "testPathIgnorePatterns": [
-      "dist/"
-    ],
-    "testMatch": [
-      "**/*.test.js"
-    ]
   },
   "repository": {
     "type": "git",
@@ -35,8 +35,6 @@
     "esplora",
     "electrum"
   ],
-  "author": "Jose-Luis Landabaso",
-  "license": "MIT",
   "bugs": {
     "url": "https://github.com/bitcoinerlab/discovery/issues"
   },
@@ -54,18 +52,8 @@
     "shallow-equal": "^3.1.0"
   },
   "devDependencies": {
-    "@types/jest": "^29.5.1",
-    "@typescript-eslint/eslint-plugin": "^5.59.0",
-    "@typescript-eslint/parser": "^5.59.0",
+    "@bitcoinerlab/configs": "github:bitcoinerlab/configs",
     "bip39": "^3.1.0",
-    "eslint-config-prettier": "^8.8.0",
-    "eslint-plugin-jest": "^27.2.1",
-    "eslint-plugin-prettier": "^4.2.1",
-    "jest": "^29.5.0",
-    "prettier": "^2.8.7",
-    "regtest-client": "^0.2.0",
-    "typedoc": "^0.25.0",
-    "typedoc-plugin-missing-exports": "^2.1.0",
-    "typescript": "^5.0.4"
+    "regtest-client": "^0.2.0"
   }
 }

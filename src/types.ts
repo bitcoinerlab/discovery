@@ -26,6 +26,10 @@
 //   }
 // };
 
+/**
+ * Enumeration of network identifiers.
+ * @enum {string}
+ */
 export enum NetworkId {
   BITCOIN = 'BITCOIN',
   REGTEST = 'REGTEST',
@@ -33,37 +37,76 @@ export enum NetworkId {
   SIGNET = 'SIGNET'
 }
 
+/**
+ * Enumeration of transaction statuses.
+ * @enum {string}
+ */
 export enum TxStatus {
   ALL = 'ALL',
   IRREVERSIBLE = 'IRREVERSIBLE',
   CONFIRMED = 'CONFIRMED'
 }
 
+/**
+ * Type definition for Transaction ID.
+ */
 export type TxId = string;
 
+/**
+ * Type definition for Transaction Information.
+ */
 export type TxInfo = {
-  //txId: TxId;
+  /**
+   * The block height.
+   */
   blockHeight: number;
+  /**
+   * Indicates if the transaction is irreversible.
+   */
   irreversible: boolean;
+  /**
+   * The transaction hex, optional.
+   */
   txHex?: TxHex;
 };
 
+/**
+ * Type definition for Script Public Key Information.
+ */
 export type ScriptPubKeyInfo = {
-  //Last time the scriptPubKey was fetched
+  /**
+   * Array of transaction IDs.
+   */
   txIds: Array<TxId>;
-  timeFetched: number; //Last time explorer.fetchTxHistory was called for this scriptPubKey. 0 if never fetched - we don't need a fetching prop here since this is only a 1 network query.
+
+  /**
+   * UNIX timestamp of the last time Explorer.fetchTxHistory was called for
+   * this scriptPubKey; 0 if never fetched.
+   */
+  timeFetched: number;
 };
 
 /**
- * Represents the descriptor index for a ranged descriptor (number) or marks
- * this descriptor as non-ranged.
+ * Represents a descriptor expression.
  */
 export type Expression = string;
+
+/**
+ * Represents an account.
+ */
 export type Account = Expression;
+
+/**
+ * Represents the descriptor index for a ranged descriptor (number) or marks
+ * this descriptor as non-ranged (string 'non-ranged').
+ */
 export type DescriptorIndex = number | 'non-ranged';
 
 /**
- * Represents a descriptor, which can be either a ranged descriptor or a non-ranged descriptor.
+ * Type definition for Descriptor Information. A descriptor can be ranged or 'non-ranged'.
+ * @property {boolean} fetching - Indicates if the descriptor data is being fetched.
+ * @property {number} timeFetched - UNIX timestamp of the last fetch, 0 if never fetched.
+ * @property {Record<DescriptorIndex, ScriptPubKeyInfo>} scriptPubKeyInfoRecords - Records of ScriptPubKeyInfo.
  */
 export type DescriptorInfo = {
   fetching: boolean; // A flag indicating if the descriptor data is being fetched.
@@ -71,13 +114,31 @@ export type DescriptorInfo = {
   scriptPubKeyInfoRecords: Record<DescriptorIndex, ScriptPubKeyInfo>;
 };
 
+/**
+ * Type definition for Transaction Hex.
+ */
 export type TxHex = string;
 
+/**
+ * Type definition for Network Information.
+ */
 export type NetworkInfo = {
+  /**
+   *Records of DescriptorInfo.
+   */
   descriptors: Record<Expression, DescriptorInfo>;
+  /**
+   *Records of TxInfo.
+   */
   txInfoRecords: Record<TxId, TxInfo>;
 };
 
+/**
+ * Type definition for Discovery Information.
+ */
 export type DiscoveryInfo = Record<NetworkId, NetworkInfo>;
 
+/**
+ * Type definition for Unspent Transaction Output. Format: `${txId}:${vout}`.
+ */
 export type Utxo = string; //`${txId}:${vout}`

@@ -59,6 +59,8 @@ export function DiscoveryFactory(
     /**
      * Constructs a Discovery instance. Discovery is used to discover funds
      * in a Bitcoin wallet using descriptors.
+     *
+     * @param options
      */
     constructor(
       {
@@ -121,6 +123,7 @@ export function DiscoveryFactory(
      *
      * @throws If the scriptPubKey is not unique.
      * @private
+     * @param options
      */
     #ensureScriptPubKeyUniqueness({
       networkId,
@@ -174,6 +177,7 @@ export function DiscoveryFactory(
      * This method is useful for updating the state of the wallet based on new
      * transactions and scriptPubKeys.
      *
+     * @param options
      * @returns A promise that resolves to a boolean indicating whether any transactions were found for the provided scriptPubKey.
      */
     async discoverScriptPubKey({
@@ -260,6 +264,7 @@ export function DiscoveryFactory(
     /**
      * Asynchronously fetches all transactions associated with a specific network.
      *
+     * @param options
      * @returns Resolves when all the transactions for the provided network have been fetched and stored in discoveryInfo.
      */
     async discoverTxs({
@@ -303,6 +308,7 @@ export function DiscoveryFactory(
     /**
      * Asynchronously fetches one or more descriptor expressions.
      *
+     * @param options
      * @returns Resolves when the fetch operation completes. If used expressions are found, waits for the discovery of associated transactions.
      */
     async discover({
@@ -409,6 +415,7 @@ export function DiscoveryFactory(
      * with a master node in a specific network. It uses a given gap limit for
      * wallet discovery.
      *
+     * @param options
      * @returns Resolves when all the accounts from the master node have been discovered.
      */
     async discoverStandardAccounts({
@@ -476,9 +483,11 @@ export function DiscoveryFactory(
      * This characteristic can be particularly beneficial in
      * React and similar projects, where re-rendering occurs based on reference changes.
      *
+     * @param options
      * @returns Returns an array of descriptor expressions.
      * These are derived from the discovery information of the wallet and the
      * provided network.
+     *
      */
     getExpressions({
       network
@@ -494,7 +503,7 @@ export function DiscoveryFactory(
 
     /**
      * Retrieves all the accounts in the wallet: those descriptors with keyPaths
-     * ending in {/0/*, /1/*}. An account is identified
+     * ending in `{/0/*, /1/*}`. An account is identified
      * by its external descriptor `keyPath = /0/*`. The result is cached based on
      * the size specified in the constructor. As long as this cache size is not
      * exceeded, this function will maintain the same object reference per
@@ -502,6 +511,7 @@ export function DiscoveryFactory(
      * This characteristic can be especially beneficial in
      * React or similar projects, where re-rendering occurs based on reference changes.
      *
+     * @param options
      * @returns An array of accounts, each represented
      * as its external descriptor expression.
      */
@@ -525,6 +535,7 @@ export function DiscoveryFactory(
      * beneficial in React or similar projects, where re-rendering occurs based
      * on reference changes.
      *
+     * @param options
      * @returns An array of descriptor expressions
      * associated with the specified account.
      */
@@ -555,6 +566,7 @@ export function DiscoveryFactory(
      * This can be useful in environments such as React where
      * preserving object identity can prevent unnecessary re-renders.
      *
+     * @param options
      * @returns An object containing the UTXOs associated with the
      * scriptPubKey and the total balance of these UTXOs.
      */
@@ -612,6 +624,7 @@ export function DiscoveryFactory(
      * This can be useful in environments such as React where
      * preserving object identity can prevent unnecessary re-renders.
      *
+     * @param options
      * @returns An object containing the UTXOs associated with the
      * scriptPubKeys and the total balance of these UTXOs.
      */
@@ -658,6 +671,7 @@ export function DiscoveryFactory(
      * The method retrieves the currently highest index used for the respective key type
      * (external or internal), and returns the next available index by incrementing it by 1.
      *
+     * @param options
      * @returns The next available index for the specified key type within the account.
      */
     getNextIndex({
@@ -724,6 +738,7 @@ export function DiscoveryFactory(
      * This can be useful in environments such as React where preserving object identity can
      * prevent unnecessary re-renders.
      *
+     * @param options
      * @returns An array containing transaction info associated with the script public key.
      */
     getHistoryByScriptPubKey({
@@ -777,6 +792,7 @@ export function DiscoveryFactory(
      * This can be useful in environments such as React where preserving object identity can
      * prevent unnecessary re-renders.
      *
+     * @param options
      * @returns An array containing transaction info associated with the descriptor expressions.
      */
     getHistory({
@@ -815,8 +831,8 @@ export function DiscoveryFactory(
      * discoveryInfo given the transaction ID (TxId) or a Unspent Transaction Output (Utxo)
      * as well as the network in which the transaction occurred.
      *
+     * @param options
      * @returns The hexadecimal representation of the transaction.
-     *
      * @throws Will throw an error if the transaction ID is invalid or if the TxHex is not found.
      */
     getTxHex({
@@ -851,6 +867,7 @@ export function DiscoveryFactory(
      * The data will have already been computed and cached for efficiency within
      * the Discovery class.
      *
+     * @param options
      * @returns The transaction data as a Transaction object.
      */
     getTransaction({

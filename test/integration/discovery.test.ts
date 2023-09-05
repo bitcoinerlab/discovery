@@ -127,6 +127,7 @@ for (const network of [networks.bitcoin]) {
             //);
           }
           //console.log(JSON.stringify(discovery.getDiscoveryInfo(), null, 2));
+          await explorer.close();
         },
         60 * 10 * 1000
       );

@@ -1,10 +1,10 @@
 {
   "name": "@bitcoinerlab/discovery",
+  "description": "A TypeScript library for retrieving Bitcoin funds from ranged descriptors, leveraging @bitcoinerlab/explorer for standardized access to multiple blockchain explorers.",
+  "homepage": "https://github.com/bitcoinerlab/discovery",
+  "version": "0.0.2",
   "author": "Jose-Luis Landabaso",
   "license": "MIT",
-  "homepage": "https://github.com/bitcoinerlab/discovery",
-  "version": "0.0.1",
-  "description": "A TypeScript library for retrieving Bitcoin funds from ranged descriptors, leveraging @bitcoinerlab/explorer for standardized access to multiple blockchain explorers.",
   "prettier": "@bitcoinerlab/configs/prettierConfig.json",
   "eslintConfig": {
     "extends": "./node_modules/@bitcoinerlab/configs/eslintConfig"

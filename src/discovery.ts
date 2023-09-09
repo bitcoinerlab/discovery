@@ -902,12 +902,15 @@ export function DiscoveryFactory(
 }
 
 /**
- * The {@link DiscoveryFactory | `DiscoveryFactory`} function internally creates and returns an instance of the {@link _Internal_.Discovery | `Discovery`} class.
- * This instance is specialized for the provided `Explorer`, which is responsible for fetching blockchain data like transaction details.
+ * The {@link DiscoveryFactory | `DiscoveryFactory`} function internally creates and returns the {@link _Internal_.Discovery | `Discovery`} class.
+ * This class is specialized for the provided `Explorer`, which is responsible for fetching blockchain data like transaction details.
+ * Use `DiscoveryInstance` to declare instances for this class: `const: DiscoveryInstance = new Discovery();`
  *
  * See the {@link _Internal_.Discovery | documentation for the internal Discovery class} for a complete list of available methods.
  */
 
-type Discovery = InstanceType<ReturnType<typeof DiscoveryFactory>['Discovery']>;
+type DiscoveryInstance = InstanceType<
+  ReturnType<typeof DiscoveryFactory>['Discovery']
+>;
 
-export { Discovery };
+export { DiscoveryInstance };

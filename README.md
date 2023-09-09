@@ -18,29 +18,11 @@ The @bitcoinerlab/discovery library, written in TypeScript, provides a method fo
 
 ## Important Notice
 
-**This library is under active development and not yet ready for production use.**
+**This library is currently under active development and is not yet recommended for production use.**
 
-**This package currently depends on a local copy of the `@bitcoinerlab/explorer` package, which is under development and not yet published on npm**.
+**This package has a dependency on the GitHub package `@bitcoinerlab/explorer`, which is also under development and has not been published to npm yet**. You can use the script `npm run updateexplorer` to update it.
 
-To use this package, please follow these steps:
-
-1. Clone the `@bitcoinerlab/explorer` package repository from GitHub:
-```bash
-git clone https://github.com/bitcoinerlab/explorer.git
-```
-2. Place the cloned `explorer` directory in the appropriate folder, so that it has the same parent folder as the `discovery` package (e.g., both `explorer` and `discovery` directories should be under the `bitcoinerlab` folder).
-3. Navigate to the `explorer` directory and install its dependencies:
-```bash
-cd explorer
-npm install
-```
-4. Navigate back to the `discovery` directory and install its dependencies:
-```bash
-cd ../discovery
-npm run updatelocalexplorer
-npm install
-```
-Please note that this setup is temporary. Both `@bitcoinerlab/explorer` and `@bitcoinerlab/discovery` packages will be published to npm simultaneously once their development is complete. At that time, you will be able to install both packages directly from npm, without the need for the local copy of `@bitcoinerlab/explorer`.
+Please understand that this setup is only temporary. Once development is completed, both the `@bitcoinerlab/explorer` and `@bitcoinerlab/discovery` packages will be published to npm simultaneously. At that point, you will be able to install both packages directly from npm.
 
 ## Usage
 

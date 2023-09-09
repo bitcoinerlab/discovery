@@ -21,7 +21,7 @@
     "build:test": "tsc --project ./node_modules/@bitcoinerlab/configs/tsconfig.test.json",
     "build": "npm run build:src && npm run build:test",
     "lint": "eslint --ignore-path .gitignore --ext .ts src/ test/",
-    "updatelocalexplorer": "cd ../explorer && npm run build && npm pack && mv *.tgz ../discovery && cd ../discovery && npm uninstall @bitcoinerlab/explorer && npm install ./bitcoinerlab-explorer-*.tgz && rm ./bitcoinerlab-explorer-*.tgz",
+    "updateexplorer": "npm uninstall @bitcoinerlab/explorer && npm install bitcoinerlab/explorer",
     "tester": "./node_modules/@bitcoinerlab/configs/scripts/tester.sh",
     "test": "npm run lint && npm run build && npm run tester && NODE_OPTIONS=\"--experimental-fetch\" jest",
     "prepublishOnly": "npm test"
@@ -44,7 +44,7 @@
   ],
   "dependencies": {
     "@bitcoinerlab/descriptors": "^1.0.2",
-    "@bitcoinerlab/explorer": "file:bitcoinerlab-explorer-0.0.1.tgz",
+    "@bitcoinerlab/explorer": "github:bitcoinerlab/explorer",
     "@bitcoinerlab/secp256k1": "^1.0.5",
     "@types/memoizee": "^0.4.8",
     "bitcoinjs-lib": "^6.1.3",

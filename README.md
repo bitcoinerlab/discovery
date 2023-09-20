@@ -107,7 +107,7 @@ To get started, follow the steps below:
      const history = discovery.getHistory({ expressions, network });
      ```
 
-   For a comprehensive rundown of all available methods and their descriptions, please consult [the API documentation](https://bitcoinerlab.com/modules/descriptors/api/classes/_Internal_.Discovery.html).
+   For a comprehensive rundown of all available methods and their descriptions, please consult [the API documentation](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html).
 
 ## API Documentation
 

@@ -590,7 +590,10 @@ export function deriveDataFactory({
     deriveAccountsFactory(networkId)(discoveryInfo);
 
   const deriveAccountExpressions = memoizee(
-    (account: Account) => [account, account.replace(/\/0\/\*/g, '/1/*')],
+    (account: Account): [Expression, Expression] => [
+      account,
+      account.replace(/\/0\/\*/g, '/1/*')
+    ],
     { primitive: true, max: expressionsCacheSize }
   );
 

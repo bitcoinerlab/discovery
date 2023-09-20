@@ -2,7 +2,11 @@
 // Distributed under the MIT software license
 //import { DiscoveryFactory } from '../dist';
 //import { networks, crypto } from 'bitcoinjs-lib';
-//
+
+test('This lib still needs the following unit tests', () => {
+  expect(true).toBe(true);
+});
+
 //import type { Explorer } from '@bitcoinerlab/explorer';
 //
 //// Mock dependencies if necessary

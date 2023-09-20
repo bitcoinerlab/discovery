@@ -42,8 +42,10 @@ export enum NetworkId {
  * @enum {string}
  */
 export enum TxStatus {
+  /** ALL includes unconfirmed transactions */
   ALL = 'ALL',
   IRREVERSIBLE = 'IRREVERSIBLE',
+  /** CONFIRMED with at least 1 confirmation */
   CONFIRMED = 'CONFIRMED'
 }
 
@@ -92,7 +94,9 @@ export type ScriptPubKeyInfo = {
 export type Expression = string;
 
 /**
- * Represents an account.
+ * Represents an account. Accounts are descriptors pairs with keyPaths
+ * ending in `{/0/*, /1/*}`. Per convention, in @bitcoinerlab an account is
+ * identified by its external descriptor `keyPath = /0/*`.
  */
 export type Account = Expression;
 

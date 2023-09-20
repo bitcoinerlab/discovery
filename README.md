@@ -14,16 +14,6 @@ The @bitcoinerlab/discovery library, written in TypeScript, provides a method fo
 
 - **Data Derivation:** The library maintains a compact internal structure of information and provides methods to query and derive useful data from it. For example, Balances and UTXOs are computed on-the-fly from raw data, while advanced memoization techniques ensure efficiency. This compact data model allows the library to focus on retrieving and storing only transaction data, eliminating the need to download and keep balances or UTXOs in sync.
 
-- **Wallet Development Support:** The library understands account syntax, providing the next available addresses for change or external retrieval, simplifying the process of wallet development.
-
-## Important Notice
-
-**This library is currently under active development and is not yet recommended for production use.**
-
-**This package has a dependency on the GitHub package `@bitcoinerlab/explorer`, which is also under development and has not been published to npm yet**. You can use the script `npm run updateexplorer` to update it.
-
-Please understand that this setup is only temporary. Once development is completed, both the `@bitcoinerlab/explorer` and `@bitcoinerlab/discovery` packages will be published to npm simultaneously. At that point, you will be able to install both packages directly from npm.
-
 ## Usage
 
 To get started, follow the steps below:
@@ -82,18 +72,100 @@ To get started, follow the steps below:
 
    **Note**: The `connect` method must be run before starting any data queries to the blockchain, and the `close` method should be run after you have completed all necessary queries and no longer need to query the blockchain.
 
-## Features (Coming Soon)
+4. **Using the Discovery Methods**
+   
+   Once you've instantiated the `Discovery` class, you can leverage its methods to interact with blockchain data.
 
-- Retrieve Bitcoin funds using descriptors
-- Unified access to various Bitcoin blockchain explorer services
-- TypeScript support for easy integration and type safety
--
+   For instance, if you want to fetch all the addresses from a ranged descriptor expression, execute:
+   
+   ```typescript
+   await discovery.discover({ expressions, network, gapLimit: 3 });
+   const { utxos, balance } = discovery.getUtxos({ expressions, network });
+   ```
+   
+   In this context, the term `expressions` can be a single string or an array of strings. These expressions represent [descriptor expressions](https://bitcoinerlab.com/modules/descriptors). If an expression is ranged, it will retrieve all the related `scriptPubKeys`. Subsequently, you can obtain the UTXOs and balance for that particular expression using the subsequent line.
 
-## Planned Progress
+   Other beneficial methods include:
 
-- [ ] Core functionality development
-- [ ] Integration with @bitcoinerlab/explorer
-- [ ] Unit tests and continuous integration
-- [ ] Comprehensive documentation and usage examples
+   - **Getting the Next Index**: 
+     If you're dealing with ranged descriptor expressions and want to determine the next available (unused) index, use:
+     ```typescript
+     const index = discovery.getNextIndex({ expression, network });
+     ```
 
-Stay tuned for updates and feel free to contribute to the development of this library. Your feedback is valuable and appreciated.
+   - **Fetching ScriptPubKeys by UTXO**:
+     This method is essential post-discovery. For a given UTXO, it yields all possible `scriptPubKeys` and related data that can consume the specified UTXO. It's worth noting that this method returns an array since multiple valid descriptor expressions might refer to the same output.
+     ```typescript
+     discovery.getScriptPubKeysByUtxo({ utxo, network });
+     // This yields: Array<{ expression, index, vout, txHex }>
+     ```
+     This function is particularly useful when crafting a transaction capable of expending the UTXO, especially when paired with the @bitcoinerlab/descriptors library.
+
+   - **Reviewing Transaction History**:
+     To inspect all transactions associated with a specific descriptor expression (or an array of them), use:
+     ```typescript
+     const history = discovery.getHistory({ expressions, network });
+     ```
+
+   For a comprehensive rundown of all available methods and their descriptions, please consult [the API documentation](https://bitcoinerlab.com/modules/descriptors/api/classes/_Internal_.Discovery.html).
+
+## API Documentation
+
+To generate the API documentation for this module, you can run the following command:
+
+```bash
+npm run docs
+```
+
+However, if you'd prefer to skip this step, the API documentation has already been compiled and is available for reference at [bitcoinerlab.com/modules/discovery/api](https://bitcoinerlab.com/modules/discovery/api).
+
+
+## Authors and Contributors
+
+The project was initially developed and is currently maintained by [Jose-Luis Landabaso](https://github.com/landabaso). Contributions and help from other developers are welcome.
+
+Here are some resources to help you get started with contributing:
+
+### Building from source
+
+To download the source code and build the project, follow these steps:
+
+1. Clone the repository:
+
+```bash
+git clone https://github.com/bitcoinerlab/discovery.git
+```
+
+2. Install the dependencies:
+
+```bash
+npm install
+```
+
+3. Build the project:
+
+```bash
+npm run build
+```
+
+This will build the project and generate the necessary files in the `dist` directory.
+
+### Testing
+
+Before finalizing and committing your code, it's essential to make sure all tests are successful. To run these tests:
+
+1. A Bitcoin regtest node must be active.
+2. Utilize the [Express-based bitcoind manager](https://github.com/bitcoinjs/regtest-server) which should be operational at `127.0.0.1:8080`.
+3. An Electrum server and an Esplora server are required, both indexing the regtest node.
+
+To streamline this setup, you can use the Docker image, `bitcoinerlab/tester`, which comes preconfigured with the required services. The Docker image can be found under **Dockerfile for bitcoinerlab/tester**. When you run the test script using:
+
+```bash
+npm test
+```
+
+it will automatically download and start the Docker image if it's not already present on your machine. However, ensure you have the `docker` binary available in your path for this to work seamlessly.
+
+### License
+
+This project is licensed under the MIT License.

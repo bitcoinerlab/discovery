@@ -95,17 +95,15 @@ for (const network of [networks.bitcoin]) {
           for (const account of discovery.getAccounts({ network })) {
             console.log(
               `Next external index: ${discovery.getNextIndex({
-                account,
+                expression: discovery.getAccountExpressions({ account })[0],
                 network,
-                isExternal: true,
                 txStatus: TxStatus.ALL
               })}`
             );
             console.log(
               `Next internal index: ${discovery.getNextIndex({
-                account,
+                expression: discovery.getAccountExpressions({ account })[1],
                 network,
-                isExternal: false,
                 txStatus: TxStatus.ALL
               })}`
             );

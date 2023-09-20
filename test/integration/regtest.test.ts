@@ -27,7 +27,7 @@ const { Descriptor, BIP32 } = descriptors.DescriptorsFactory(secp256k1);
 const regtestUtils = new RegtestUtils();
 import {
   DiscoveryFactory,
-  Discovery,
+  DiscoveryInstance,
   Account,
   TxStatus,
   DescriptorIndex,
@@ -130,7 +130,7 @@ describe('Discovery on regtest', () => {
   const discoverers: Array<{
     name: string;
     explorer: Explorer;
-    discovery?: Discovery;
+    discovery?: DiscoveryInstance;
   }> = [];
   discoverers.push(
     {

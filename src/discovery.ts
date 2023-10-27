@@ -335,8 +335,9 @@ export function DiscoveryFactory(
       next
     }: {
       /**
-       * Descriptor expression for a single output. Use either `descriptor` or
-       * `descriptors`, but not both simultaneously.
+       * Descriptor expression representing one or potentially multiple outputs
+       * if ranged.
+       * Use either `descriptor` or `descriptors`, but not both simultaneously.
        */
       descriptor?: Descriptor;
 

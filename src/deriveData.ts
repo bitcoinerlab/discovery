@@ -46,10 +46,10 @@ export function canonicalize(
 
 export function deriveDataFactory({
   descriptorsCacheSize = 0,
-  indicesPerDescriptorCacheSize = 0
+  outputsPerDescriptorCacheSize = 0
 }: {
   descriptorsCacheSize: number;
-  indicesPerDescriptorCacheSize: number;
+  outputsPerDescriptorCacheSize: number;
 }) {
   const deriveScriptPubKeyFactory = memoizee(
     (networkId: NetworkId) =>
@@ -68,7 +68,7 @@ export function deriveDataFactory({
               const scriptPubKey = output.getScriptPubKey();
               return scriptPubKey;
             },
-            { primitive: true, max: indicesPerDescriptorCacheSize }
+            { primitive: true, max: outputsPerDescriptorCacheSize }
           ),
         { primitive: true, max: descriptorsCacheSize }
       ),
@@ -183,7 +183,7 @@ export function deriveDataFactory({
                     { max: 1 }
                   );
                 },
-                { primitive: true, max: indicesPerDescriptorCacheSize }
+                { primitive: true, max: outputsPerDescriptorCacheSize }
               ),
             { primitive: true, max: descriptorsCacheSize }
           ),
@@ -232,7 +232,7 @@ export function deriveDataFactory({
             }
           );
         },
-        { primitive: true, max: indicesPerDescriptorCacheSize }
+        { primitive: true, max: outputsPerDescriptorCacheSize }
       ),
     { primitive: true, max: descriptorsCacheSize }
   );
@@ -274,7 +274,7 @@ export function deriveDataFactory({
             },
             {
               primitive: true,
-              max: indicesPerDescriptorCacheSize
+              max: outputsPerDescriptorCacheSize
             }
           ),
         { primitive: true, max: descriptorsCacheSize }

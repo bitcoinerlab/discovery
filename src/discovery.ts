@@ -37,7 +37,7 @@ import {
 const now = () => Math.floor(Date.now() / 1000);
 
 /**
- * Creates and returns a Discovery class for discovering funds in a Bitcoin wallet
+ * Creates and returns a Discovery class for discovering funds in a Bitcoin network
  * using descriptors. The class provides methods for descriptor expression discovery,
  * balance checking, transaction status checking, and so on.
  *
@@ -52,7 +52,7 @@ export function DiscoveryFactory(
   explorer: Explorer
 ) {
   /**
-   * A class to discover funds in a Bitcoin wallet using descriptors.
+   * A class to discover funds in a Bitcoin network using descriptors.
    * The {@link DiscoveryFactory | `DiscoveryFactory`} function internally creates and returns an instance of this class.
    * The returned class is specialized for the provided `Explorer`, which is responsible for fetching blockchain data like transaction details.
    */
@@ -62,14 +62,14 @@ export function DiscoveryFactory(
 
     /**
      * Constructs a Discovery instance. Discovery is used to discover funds
-     * in a Bitcoin wallet using descriptors.
+     * in a Bitcoin network using descriptors.
      *
      * @param options
      */
     constructor(
       {
         descriptorsCacheSize = 1000,
-        indicesPerDescriptorCacheSize = 10000
+        outputsPerDescriptorCacheSize = 10000
       }: {
         /**
          * Cache size limit for descriptor expressions per network.
@@ -88,19 +88,19 @@ export function DiscoveryFactory(
          */
         descriptorsCacheSize: number;
         /**
-         * Cache size limit for indices per expression, related to the number of addresses
+         * Cache size limit for outputs per descriptor, related to the number of outputs
          * in ranged descriptor expressions. Similar to the `descriptorsCacheSize`,
          * this cache is used to speed up data queries and avoid recomputations.
-         * As each expression can have multiple indices, the number of indices can grow rapidly,
+         * As each descriptor can have multiple indices (if ranged), the number of outputs can grow rapidly,
          * leading to increased memory usage. Setting a limit helps keep memory usage in check,
          * while also maintaining the benefits of immutability and computational efficiency.
          * Set to 0 for unbounded caches.
          * @defaultValue 10000
          */
-        indicesPerDescriptorCacheSize: number;
+        outputsPerDescriptorCacheSize: number;
       } = {
         descriptorsCacheSize: 1000,
-        indicesPerDescriptorCacheSize: 10000
+        outputsPerDescriptorCacheSize: 10000
       }
     ) {
       this.#discoveryData = {} as DiscoveryData;
@@ -115,7 +115,7 @@ export function DiscoveryFactory(
       }
       this.#derivers = deriveDataFactory({
         descriptorsCacheSize,
-        indicesPerDescriptorCacheSize
+        outputsPerDescriptorCacheSize
       });
     }
 
@@ -178,8 +178,8 @@ export function DiscoveryFactory(
      * state of the Discovery class instance. This state keeps track of
      * transaction info and descriptors relevant to the discovery process.
      *
-     * This method is useful for updating the state of the wallet based on new
-     * transactions and scriptPubKeys.
+     * This method is useful for updating the state based on new
+     * transactions and output.
      *
      * This method does not retrieve the txHex associated with the Output.
      * An additional #discoverTxs must be performed.
@@ -318,7 +318,7 @@ export function DiscoveryFactory(
     /**
      * Asynchronously fetches one or more descriptor expressions, retrieving
      * all the historical txs associated with the outputs represented by the
-     * expressions (including txHex).
+     * expressions.
      *
      * @param options
      * @returns Resolves when the fetch operation completes. If used expressions
@@ -363,19 +363,31 @@ export function DiscoveryFactory(
        */
       gapLimit?: number;
       /**
-       * Optional callback function. Invoked when a used output described by a descriptor is found. Provided with the same input descriptor expressions.
+       * Optional callback function triggered once a descriptor's output has been
+       * identified as previously used in a transaction. It provides a way to react
+       * or perform side effects based on this finding.
+       * @param descriptorOrDescriptors - The original descriptor or array of descriptors
+       * that have been determined to have a used output.
        */
       onUsed?: (
         descriptorOrDescriptors: Descriptor | Array<Descriptor>
       ) => void;
       /**
-       * Optional callback function. Invoked when a used descriptor is started to being checked. Provided with the same input descriptor expressions.
+       * Optional callback function invoked at the beginning of checking a descriptor
+       * to determine its usage status. This can be used to signal the start of a
+       * descriptor's check, potentially for logging or UI updates.
+       * @param descriptorOrDescriptors - The descriptor or array of descriptors being checked.
        */
       onChecking?: (
         descriptorOrDescriptors: Descriptor | Array<Descriptor>
       ) => void;
       /**
-       * Optional function that returns a Promise. Invoked once a used descriptor is found and the Promise it returns is awaited.
+       * Optional function triggered immediately after detecting that a descriptor's output
+       * has been used previously. By invoking this function, it's possible to initiate
+       * parallel discovery processes. The primary `discover` method will only resolve
+       * once both its main discovery process and any supplementary processes initiated
+       * by `next` have completed. Essentially, it ensures that all discovery,
+       * both primary and secondary, finishes before moving on.
        */
       next?: () => Promise<void>;
     }) {
@@ -390,8 +402,8 @@ export function DiscoveryFactory(
       if (onChecking) onChecking(descriptorOrDescriptors);
       const canonicalInput = canonicalize(descriptorOrDescriptors, network);
       let nextPromise;
-      let usedDescriptors = false;
-      let usedDescriptorsNotified = false;
+      let usedOutput = false;
+      let usedOutputNotified = false;
 
       const descriptorArray = Array.isArray(canonicalInput)
         ? canonicalInput
@@ -423,7 +435,7 @@ export function DiscoveryFactory(
           });
 
           if (used) {
-            usedDescriptors = true;
+            usedOutput = true;
             gap = 0;
           } else gap++;
 
@@ -431,9 +443,9 @@ export function DiscoveryFactory(
 
           index++;
 
-          if (used && onUsed && usedDescriptorsNotified === false) {
+          if (used && onUsed && usedOutputNotified === false) {
             onUsed(descriptorOrDescriptors);
-            usedDescriptorsNotified = true;
+            usedOutputNotified = true;
           }
         }
         this.#discoveryData = produce(this.#discoveryData, discoveryData => {
@@ -449,7 +461,7 @@ export function DiscoveryFactory(
       }
 
       const promises = [];
-      if (usedDescriptors) promises.push(this.#discoverTxs({ network }));
+      if (usedOutput) promises.push(this.#discoverTxs({ network }));
       if (nextPromise) promises.push(nextPromise);
       await Promise.all(promises);
     }
@@ -457,10 +469,11 @@ export function DiscoveryFactory(
     /**
      * Asynchronously discovers standard accounts (pkh, sh(wpkh), wpkh) associated
      * with a master node in a specific network. It uses a given gap limit for
-     * wallet discovery.
+     * discovery.
      *
      * @param options
-     * @returns Resolves when all the accounts from the master node have been discovered.
+     * @returns Resolves when all the standrd accounts from the master node have
+     * been discovered.
      */
     async discoverStandardAccounts({
       masterNode,
@@ -482,16 +495,22 @@ export function DiscoveryFactory(
        * The network in which to discover the accounts.
        */
       network: Network;
-      /*
-       * Callback function called with the account
-       * descriptor (external descriptor) of either the wpkh, pkh, or sh(wpkh)
-       * script type if they are detected of having been used.
+      /**
+       * Optional callback function triggered when an {@link Account account}
+       * (associated with the master node) has been identified as having past
+       * transactions. It's called with the external descriptor
+       * of the account (`keyPath = /0/*`) that is active.
+       *
+       * @param account - The external descriptor of the account that has been determined to have prior transaction activity.
        */
       onAccountUsed?: (account: Account) => void;
-      /*
-       * Callback function called with the account
-       * descriptor (external descriptor) of either the wpkh, pkh, or sh(wpkh)
-       * script type the moment they start being checked for funds.
+      /**
+       * Optional callback function invoked just as the system starts to evaluate the transaction
+       * activity of an {@link Account account} (associated with the master node).
+       * Useful for signaling the initiation of the discovery process for a
+       * particular account, often for UI updates or logging purposes.
+       *
+       * @param account - The external descriptor of the account that is currently being evaluated for transaction activity.
        */
       onAccountChecking?: (account: Account) => void;
     }) {
@@ -532,7 +551,7 @@ export function DiscoveryFactory(
     }
 
     /**
-     * Retrieves an array of descriptor expressions associated with a specific
+     * Retrieves an array of descriptors with used outputs associated with a specific
      * network. The result is cached based on the size specified in the constructor.
      * As long as this cache size is not exceeded, this function will maintain
      * the same object reference per networkId if the returned array hasn't changed.
@@ -541,8 +560,8 @@ export function DiscoveryFactory(
      *
      * @param options
      * @returns Returns an array of descriptor expressions.
-     * These are derived from the discovery information of the wallet and the
-     * provided network.
+     * These are derived from the discovery information of the Bitcoin network
+     * and the provided network.
      *
      */
     getDescriptors({
@@ -558,7 +577,7 @@ export function DiscoveryFactory(
     }
 
     /**
-     * Retrieves all the accounts in the wallet: those descriptors with keyPaths
+     * Retrieves all the {@link Account accounts} with used outputs in the network: those descriptors with keyPaths
      * ending in `{/0/*, /1/*}`. An account is identified
      * by its external descriptor `keyPath = /0/*`. The result is cached based on
      * the size specified in the constructor. As long as this cache size is not
@@ -599,7 +618,7 @@ export function DiscoveryFactory(
       account
     }: {
       /**
-       * The account associated with the descriptors.
+       * The {@link Account account} associated with the descriptors.
        */
       account: Account;
     }): [Descriptor, Descriptor] {
@@ -689,7 +708,7 @@ export function DiscoveryFactory(
     }
 
     /**
-     * Retrieves the next available index for a given expression within a
+     * Retrieves the next available index for a given descriptor within a
      * specified network.
      *
      * The method retrieves the currently highest index used, and returns the
@@ -831,7 +850,9 @@ export function DiscoveryFactory(
     }
 
     /**
-     * Retrieves the transaction data as a Transaction object given the transaction
+     * Retrieves the transaction data as a bitcoinjs-lib
+     * {@link https://github.com/bitcoinjs/bitcoinjs-lib/blob/master/ts_src/transaction.ts Transaction}
+     * object given the transaction
      * ID (TxId) or a Unspent Transaction Output (Utxo) and the network in which
      * the transaction occurred. The transaction data is obtained by first getting
      * the transaction hexadecimal representation using getTxHex() method.
@@ -867,7 +888,7 @@ export function DiscoveryFactory(
      * descriptor expression (and its corresponding index for
      * ranged-descriptors).
      */
-    getUTXODescriptor({
+    getUtxoDescriptor({
       network,
       utxo
     }: {

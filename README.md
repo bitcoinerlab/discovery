@@ -65,10 +65,10 @@ To get started, follow the steps below:
 
    The `Discovery` constructor accepts an optional object with two properties that are crucial for managing the application's memory usage:
 
-   - `expressionsCacheSize`: This property represents the cache size limit for descriptor expressions. The cache, implemented using memoizers, serves a dual purpose: it speeds up data queries by avoiding unnecessary recomputations, and it helps maintain immutability. Reaching the limit of the cache size may lead to a loss of immutability and the returned reference may change. This is not a critical issue, as the data is still correct, but it may trigger extra renders in the UI. The default value is 1000, and you can set it to 0 for unbounded caches.
-   - `indicesPerExpressionCacheSize`: This property represents the cache size limit for indices per expression, related to the number of addresses in ranged descriptor expressions. Similar to the `expressionsCacheSize`, reaching the limit of this cache size may lead to the same immutability challenges. The default value is 10000, and you can set it to 0 for unbounded caches.
+   - `descriptorsCacheSize`: This property represents the cache size limit for descriptor expressions. The cache, implemented using memoizers, serves a dual purpose: it speeds up data queries by avoiding unnecessary recomputations, and it helps maintain immutability. Reaching the limit of the cache size may lead to a loss of immutability and the returned reference may change. This is not a critical issue, as the data is still correct, but it may trigger extra renders in the UI. The default value is 1000, and you can set it to 0 for unbounded caches.
+   - `outputsPerDescriptorCacheSize`: This property represents the cache size limit for indices per expression, related to the number of addresses in ranged descriptor expressions. Similar to the `descriptorsCacheSize`, reaching the limit of this cache size may lead to the same immutability challenges. The default value is 10000, and you can set it to 0 for unbounded caches.
 
-   It is important to note that the default values for `expressionsCacheSize` and `indicesPerExpressionCacheSize` should be sufficient for most projects. However, if you expect to work with a large number of descriptor expressions or addresses, you may need to adjust these values accordingly. Conversely, for projects that require minimal resources, you may consider reducing these values to conserve memory.
+   It is important to note that the default values for `descriptorsCacheSize` and `outputsPerDescriptorCacheSize` should be sufficient for most projects. However, if you expect to work with a large number of descriptor expressions or addresses, you may need to adjust these values accordingly. Conversely, for projects that require minimal resources, you may consider reducing these values to conserve memory.
 
    **Note**: The `connect` method must be run before starting any data queries to the blockchain, and the `close` method should be run after you have completed all necessary queries and no longer need to query the blockchain.
 
@@ -79,32 +79,32 @@ To get started, follow the steps below:
    For instance, if you want to fetch all the addresses from a ranged descriptor expression, execute:
    
    ```typescript
-   await discovery.discover({ expressions, network, gapLimit: 3 });
-   const { utxos, balance } = discovery.getUtxos({ expressions, network });
+   await discovery.discover({ descriptors, network, gapLimit: 3 });
+   const { utxos, balance } = discovery.getUtxos({ descriptors, network });
    ```
    
-   In this context, the term `expressions` can be a single string or an array of strings. These expressions represent [descriptor expressions](https://bitcoinerlab.com/modules/descriptors). If an expression is ranged, it will retrieve all the related `scriptPubKeys`. Subsequently, you can obtain the UTXOs and balance for that particular expression using the subsequent line.
+   In this context, the term `descriptors` can be a single string or an array of strings. These expressions represent [descriptor expressions](https://bitcoinerlab.com/modules/descriptors). If an expression is ranged, it will retrieve all the related `outputs`. Subsequently, you can obtain the UTXOs and balance for that particular expression using the subsequent line.
 
    Other beneficial methods include:
 
    - **Getting the Next Index**: 
      If you're dealing with ranged descriptor expressions and want to determine the next available (unused) index, use:
      ```typescript
-     const index = discovery.getNextIndex({ expression, network });
+     const index = discovery.getNextIndex({ descriptor, network });
      ```
 
-   - **Fetching ScriptPubKeys by UTXO**:
-     This method is essential post-discovery. For a given UTXO, it yields all possible `scriptPubKeys` and related data that can consume the specified UTXO. It's worth noting that this method returns an array since multiple valid descriptor expressions might refer to the same output.
+   - **Fetching Descriptors by UTXO**:
+     This method is essential post-discovery. For a given UTXO, it yields the `output` that can consume it.
      ```typescript
-     discovery.getScriptPubKeysByUtxo({ utxo, network });
-     // This yields: Array<{ expression, index, vout, txHex }>
+     discovery.getUtxoDescriptor({ utxo, network });
+     // This yields: { descriptor, index? }, where index is only returned if descriptor is ranged.
      ```
      This function is particularly useful when crafting a transaction capable of expending the UTXO, especially when paired with the @bitcoinerlab/descriptors library.
 
    - **Reviewing Transaction History**:
      To inspect all transactions associated with a specific descriptor expression (or an array of them), use:
      ```typescript
-     const history = discovery.getHistory({ expressions, network });
+     const history = discovery.getHistory({ descriptors, network });
      ```
 
    For a comprehensive rundown of all available methods and their descriptions, please consult [the API documentation](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html).

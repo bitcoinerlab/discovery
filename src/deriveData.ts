@@ -6,85 +6,85 @@ import { memoizeOneWithShallowArraysCheck } from './memoizers';
 import { shallowEqualArrays } from 'shallow-equal';
 import {
   NetworkId,
-  ScriptPubKeyInfo,
-  Expression,
+  OutputData,
+  Descriptor,
   Account,
   DescriptorIndex,
-  DiscoveryInfo,
+  DiscoveryData,
   Utxo,
   TxStatus,
-  DescriptorInfo,
+  DescriptorData,
   TxId,
-  TxInfo
+  TxData
 } from './types';
 import { Transaction, Network } from 'bitcoinjs-lib';
 import { DescriptorsFactory } from '@bitcoinerlab/descriptors';
 import * as secp256k1 from '@bitcoinerlab/secp256k1';
-const { Descriptor, expand } = DescriptorsFactory(secp256k1);
+const { Output, expand } = DescriptorsFactory(secp256k1);
 import { getNetwork } from './networks';
 
-export const canonicalize = (
-  expressions: Array<Expression> | Expression,
+export function canonicalize(
+  descriptorOrDescriptors: Array<Descriptor> | Descriptor,
   network: Network
-) => {
+) {
   let isDifferent = false;
-  const expressionArray = Array.isArray(expressions)
-    ? expressions
-    : [expressions];
-  const canonicalExpressions: Array<Expression> | Expression = [];
-  expressionArray.forEach(expression => {
-    const canonicalExpression = expand({
-      expression,
+  const descriptorArray = Array.isArray(descriptorOrDescriptors)
+    ? descriptorOrDescriptors
+    : [descriptorOrDescriptors];
+  const canonicalDescriptors: Array<Descriptor> | Descriptor = [];
+  descriptorArray.forEach(descriptor => {
+    const canonicalDescriptor = expand({
+      descriptor,
       network
     }).canonicalExpression;
-    if (expression !== canonicalExpression) isDifferent = true;
-    canonicalExpressions.push(canonicalExpression);
+    if (descriptor !== canonicalDescriptor) isDifferent = true;
+    canonicalDescriptors.push(canonicalDescriptor);
   });
-  if (isDifferent) return canonicalExpressions;
-  else return expressions;
-};
+  if (isDifferent) return canonicalDescriptors;
+  else return descriptorOrDescriptors;
+}
 
 export function deriveDataFactory({
-  expressionsCacheSize = 0,
-  indicesPerExpressionCacheSize = 0
+  descriptorsCacheSize = 0,
+  indicesPerDescriptorCacheSize = 0
 }: {
-  expressionsCacheSize: number;
-  indicesPerExpressionCacheSize: number;
+  descriptorsCacheSize: number;
+  indicesPerDescriptorCacheSize: number;
 }) {
   const deriveScriptPubKeyFactory = memoizee(
     (networkId: NetworkId) =>
       memoizee(
-        (expression: Expression) =>
+        (descriptor: Descriptor) =>
           memoizee(
             (index: DescriptorIndex) => {
               const network = getNetwork(networkId);
               //Note there is no need to pass a network (bitcoin will be default) but
               //it's not important anyway since the scriptPubKey does not depend on
               //the network
-              const descriptor =
+              const output =
                 index === 'non-ranged'
-                  ? new Descriptor({ expression, network })
-                  : new Descriptor({ expression, index, network });
-              const scriptPubKey = descriptor.getScriptPubKey();
+                  ? new Output({ descriptor, network })
+                  : new Output({ descriptor, index, network });
+              const scriptPubKey = output.getScriptPubKey();
               return scriptPubKey;
             },
-            { primitive: true, max: indicesPerExpressionCacheSize }
+            { primitive: true, max: indicesPerDescriptorCacheSize }
           ),
-        { primitive: true, max: expressionsCacheSize }
+        { primitive: true, max: descriptorsCacheSize }
       ),
     { primitive: true } //unbounded cache (no max setting) since Search Space is small
   );
   const deriveScriptPubKey = (
     networkId: NetworkId,
-    expression: Expression,
+    expression: Descriptor,
     index: DescriptorIndex
   ) => deriveScriptPubKeyFactory(networkId)(expression)(index);
 
-  const coreDeriveUtxosByScriptPubKey = (
+  const coreDeriveUtxosByOutput = (
     networkId: NetworkId,
-    expression: Expression,
+    expression: Descriptor,
     index: DescriptorIndex,
-    txInfoArray: Array<TxInfo>,
+    txInfoArray: Array<TxData>,
     txStatus: TxStatus
   ): Array<Utxo> => {
     const scriptPubKey = deriveScriptPubKey(networkId, expression, index);
@@ -94,6 +94,7 @@ export function deriveDataFactory({
 
     //Note that txInfoArray cannot be assumed to be in correct order. See:
     //https://github.com/Blockstream/esplora/issues/165#issuecomment-1584471718
+    //TODO: but we should guarantee same order always so use txId as second order criteria?
     for (const txInfo of txInfoArray) {
       if (
         txStatus === TxStatus.ALL ||
@@ -136,38 +137,37 @@ export function deriveDataFactory({
     return utxos;
   };
 
-  const deriveUtxosAndBalanceByScriptPubKeyFactory = memoizee(
+  const deriveUtxosAndBalanceByOutputFactory = memoizee(
     (networkId: NetworkId) =>
       memoizee(
         (txStatus: TxStatus) =>
           memoizee(
-            (expression: Expression) =>
+            (expression: Descriptor) =>
               memoizee(
                 (index: DescriptorIndex) => {
                   // Create one function per each expression x index x txStatus
-                  // coreDeriveUtxosByScriptPubKey shares all params wrt the parent
+                  // coreDeriveUtxosByOutput shares all params wrt the parent
                   // function except for additional param txInfoArray.
-                  // As soon as txInfoArray in coreDeriveUtxosByScriptPubKey changes,
+                  // As soon as txInfoArray in coreDeriveUtxosByOutput changes,
                   // it will resets its memory. However, it always returns the same
                   // reference if the resulting array is shallowy-equal:
-                  const deriveUtxosByScriptPubKey =
-                    memoizeOneWithShallowArraysCheck(
-                      coreDeriveUtxosByScriptPubKey
-                    );
+                  const deriveUtxosByOutput = memoizeOneWithShallowArraysCheck(
+                    coreDeriveUtxosByOutput
+                  );
                   let lastUtxos: Array<Utxo> | null = null;
                   let lastBalance: number;
                   return memoizee(
                     (
-                      txInfoRecords: Record<TxId, TxInfo>,
-                      descriptors: Record<Expression, DescriptorInfo>
+                      txMap: Record<TxId, TxData>,
+                      descriptorMap: Record<Descriptor, DescriptorData>
                     ) => {
-                      const txInfoArray = deriveTxInfoArray(
-                        txInfoRecords,
-                        descriptors,
+                      const txInfoArray = deriveTxDataArray(
+                        txMap,
+                        descriptorMap,
                         expression,
                         index
                       );
-                      const utxos = deriveUtxosByScriptPubKey(
+                      const utxos = deriveUtxosByOutput(
                         networkId,
                         expression,
                         index,
@@ -177,90 +177,87 @@ export function deriveDataFactory({
                       if (lastUtxos && shallowEqualArrays(lastUtxos, utxos))
                         return { utxos: lastUtxos, balance: lastBalance };
                       lastUtxos = utxos;
-                      lastBalance = coreDeriveUtxosBalance(
-                        txInfoRecords,
-                        utxos
-                      );
+                      lastBalance = coreDeriveUtxosBalance(txMap, utxos);
                       return { utxos, balance: lastBalance };
                     },
                     { max: 1 }
                   );
                 },
-                { primitive: true, max: indicesPerExpressionCacheSize }
+                { primitive: true, max: indicesPerDescriptorCacheSize }
               ),
-            { primitive: true, max: expressionsCacheSize }
+            { primitive: true, max: descriptorsCacheSize }
           ),
         { primitive: true } //unbounded cache (no max setting) since Search Space is small
       ),
     { primitive: true } //unbounded cache (no max setting) since Search Space is small
   );
 
-  const deriveUtxosAndBalanceByScriptPubKey = (
+  const deriveUtxosAndBalanceByOutput = (
     networkId: NetworkId,
-    txInfoRecords: Record<TxId, TxInfo>,
-    descriptors: Record<Expression, DescriptorInfo>,
-    expression: Expression,
+    txMap: Record<TxId, TxData>,
+    descriptorMap: Record<Descriptor, DescriptorData>,
+    expression: Descriptor,
     index: DescriptorIndex,
     txStatus: TxStatus
   ) =>
-    deriveUtxosAndBalanceByScriptPubKeyFactory(networkId)(txStatus)(expression)(
+    deriveUtxosAndBalanceByOutputFactory(networkId)(txStatus)(expression)(
       index
-    )(txInfoRecords, descriptors);
+    )(txMap, descriptorMap);
 
-  const coreDeriveTxInfoArray = (
+  const coreDeriveTxDataArray = (
     txIds: Array<TxId>,
-    txInfoRecords: Record<TxId, TxInfo>
-  ): Array<TxInfo> =>
+    txMap: Record<TxId, TxData>
+  ): Array<TxData> =>
     txIds.map(txId => {
-      const txInfo = txInfoRecords[txId];
+      const txInfo = txMap[txId];
       if (!txInfo) throw new Error(`txInfo not saved for ${txId}`);
       return txInfo;
     });
 
-  const deriveTxInfoArrayFactory = memoizee(
-    (expression: Expression) =>
+  const deriveTxDataArrayFactory = memoizee(
+    (expression: Descriptor) =>
       memoizee(
         (index: DescriptorIndex) => {
           return memoizeOneWithShallowArraysCheck(
             (
-              txInfoRecords: Record<TxId, TxInfo>,
-              descriptors: Record<Expression, DescriptorInfo>
+              txMap: Record<TxId, TxData>,
+              descriptorMap: Record<Descriptor, DescriptorData>
             ) => {
-              const scriptPubKeyInfoRecords =
-                descriptors[expression]?.scriptPubKeyInfoRecords ||
-                ({} as Record<DescriptorIndex, ScriptPubKeyInfo>);
-              const txIds = scriptPubKeyInfoRecords[index]?.txIds || [];
-              const txInfoArray = coreDeriveTxInfoArray(txIds, txInfoRecords);
+              const range =
+                descriptorMap[expression]?.range ||
+                ({} as Record<DescriptorIndex, OutputData>);
+              const txIds = range[index]?.txIds || [];
+              const txInfoArray = coreDeriveTxDataArray(txIds, txMap);
               return txInfoArray;
             }
           );
         },
-        { primitive: true, max: indicesPerExpressionCacheSize }
+        { primitive: true, max: indicesPerDescriptorCacheSize }
       ),
-    { primitive: true, max: expressionsCacheSize }
+    { primitive: true, max: descriptorsCacheSize }
   );
 
-  const deriveTxInfoArray = (
-    txInfoRecords: Record<TxId, TxInfo>,
-    descriptors: Record<Expression, DescriptorInfo>,
-    expression: Expression,
+  const deriveTxDataArray = (
+    txMap: Record<TxId, TxData>,
+    descriptorMap: Record<Descriptor, DescriptorData>,
+    expression: Descriptor,
     index: DescriptorIndex
-  ) => deriveTxInfoArrayFactory(expression)(index)(txInfoRecords, descriptors);
+  ) => deriveTxDataArrayFactory(expression)(index)(txMap, descriptorMap);
 
-  const deriveHistoryByScriptPubKeyFactory = memoizee(
+  const deriveHistoryByOutputFactory = memoizee(
     (txStatus: TxStatus) =>
       memoizee(
-        (expression: Expression) =>
+        (expression: Descriptor) =>
           memoizee(
             (index: DescriptorIndex) => {
               return memoizeOneWithShallowArraysCheck(
                 (
-                  txInfoRecords: Record<TxId, TxInfo>,
-                  descriptors: Record<Expression, DescriptorInfo>
+                  txMap: Record<TxId, TxData>,
+                  descriptorMap: Record<Descriptor, DescriptorData>
                 ) => {
-                  const txInfoArray = deriveTxInfoArray(
-                    txInfoRecords,
-                    descriptors,
+                  const txInfoArray = deriveTxDataArray(
+                    txMap,
+                    descriptorMap,
                     expression,
                     index
                   );
@@ -277,47 +274,47 @@ export function deriveDataFactory({
             },
             {
               primitive: true,
-              max: indicesPerExpressionCacheSize
+              max: indicesPerDescriptorCacheSize
             }
           ),
-        { primitive: true, max: expressionsCacheSize }
+        { primitive: true, max: descriptorsCacheSize }
       ),
     { primitive: true } //unbounded cache (no max setting) since Search Space is small
   );
-  const deriveHistoryByScriptPubKey = (
-    txInfoRecords: Record<TxId, TxInfo>,
-    descriptors: Record<Expression, DescriptorInfo>,
-    expression: Expression,
+  const deriveHistoryByOutput = (
+    txMap: Record<TxId, TxData>,
+    descriptorMap: Record<Descriptor, DescriptorData>,
+    expression: Descriptor,
     index: DescriptorIndex,
     txStatus: TxStatus
   ) =>
-    deriveHistoryByScriptPubKeyFactory(txStatus)(expression)(index)(
-      txInfoRecords,
-      descriptors
+    deriveHistoryByOutputFactory(txStatus)(expression)(index)(
+      txMap,
+      descriptorMap
     );
 
   const coreDeriveHistory = (
-    descriptors: Record<Expression, DescriptorInfo>,
-    txInfoRecords: Record<TxId, TxInfo>,
-    expressions: Array<Expression> | Expression,
+    descriptorMap: Record<Descriptor, DescriptorData>,
+    txMap: Record<TxId, TxData>,
+    expressions: Array<Descriptor> | Descriptor,
     txStatus: TxStatus
-  ): Array<TxInfo> => {
-    const history: Array<TxInfo> = [];
+  ): Array<TxData> => {
+    const history: Array<TxData> = [];
     const expressionArray = Array.isArray(expressions)
       ? expressions
       : [expressions];
     for (const expression of expressionArray) {
-      const scriptPubKeyInfoRecords =
-        descriptors[expression]?.scriptPubKeyInfoRecords ||
-        ({} as Record<DescriptorIndex, ScriptPubKeyInfo>);
-      Object.keys(scriptPubKeyInfoRecords)
+      const range =
+        descriptorMap[expression]?.range ||
+        ({} as Record<DescriptorIndex, OutputData>);
+      Object.keys(range)
         .sort() //Sort it to be deterministic
         .forEach(indexStr => {
           const index = indexStr === 'non-ranged' ? indexStr : Number(indexStr);
           history.push(
-            ...deriveHistoryByScriptPubKey(
-              txInfoRecords,
-              descriptors,
+            ...deriveHistoryByOutput(
+              txMap,
+              descriptorMap,
               expression,
               index,
               txStatus
@@ -331,6 +328,7 @@ export function deriveDataFactory({
     //since we have txs belonging to different expressions let's try to oder
     //them. Note that we cannot guarantee to keep correct order to txs
     //that belong to the same blockHeight
+    //TODO: but we should guarantee same order always so use txId as second order criteria?
     return dedupedHistory.sort(
       (txInfoA, txInfoB) => txInfoA.blockHeight - txInfoB.blockHeight
     );
@@ -339,55 +337,53 @@ export function deriveDataFactory({
   const deriveHistoryFactory = memoizee(
     (txStatus: TxStatus) =>
       memoizee(
-        (expressions: Array<Expression> | Expression) => {
+        (expressions: Array<Descriptor> | Descriptor) => {
           return memoizeOneWithShallowArraysCheck(
             (
-              txInfoRecords: Record<TxId, TxInfo>,
-              descriptors: Record<Expression, DescriptorInfo>
-            ) =>
-              coreDeriveHistory(
-                descriptors,
-                txInfoRecords,
-                expressions,
-                txStatus
-              )
+              txMap: Record<TxId, TxData>,
+              descriptorMap: Record<Descriptor, DescriptorData>
+            ) => coreDeriveHistory(descriptorMap, txMap, expressions, txStatus)
           );
         },
-        { primitive: true, max: expressionsCacheSize }
+        { primitive: true, max: descriptorsCacheSize }
       ),
     { primitive: true } //unbounded cache (no max setting) since Search Space is small
   );
   const deriveHistory = (
-    txInfoRecords: Record<TxId, TxInfo>,
-    descriptors: Record<Expression, DescriptorInfo>,
-    expressions: Array<Expression> | Expression,
+    txMap: Record<TxId, TxData>,
+    descriptorMap: Record<Descriptor, DescriptorData>,
+    descriptorOrDescriptors: Array<Descriptor> | Descriptor,
     txStatus: TxStatus
-  ) => deriveHistoryFactory(txStatus)(expressions)(txInfoRecords, descriptors);
+  ) =>
+    deriveHistoryFactory(txStatus)(descriptorOrDescriptors)(
+      txMap,
+      descriptorMap
+    );
 
-  const coreDeriveUtxosByExpressions = (
+  const coreDeriveUtxos = (
     networkId: NetworkId,
-    descriptors: Record<Expression, DescriptorInfo>,
-    txInfoRecords: Record<TxId, TxInfo>,
-    expressions: Array<Expression> | Expression,
+    descriptorMap: Record<Descriptor, DescriptorData>,
+    txMap: Record<TxId, TxData>,
+    descriptorOrDescriptors: Array<Descriptor> | Descriptor,
     txStatus: TxStatus
   ): Array<Utxo> => {
     const utxos: Utxo[] = [];
-    const expressionArray = Array.isArray(expressions)
-      ? expressions
-      : [expressions];
+    const expressionArray = Array.isArray(descriptorOrDescriptors)
+      ? descriptorOrDescriptors
+      : [descriptorOrDescriptors];
     for (const expression of expressionArray) {
-      const scriptPubKeyInfoRecords =
-        descriptors[expression]?.scriptPubKeyInfoRecords ||
-        ({} as Record<DescriptorIndex, ScriptPubKeyInfo>);
-      Object.keys(scriptPubKeyInfoRecords)
+      const range =
+        descriptorMap[expression]?.range ||
+        ({} as Record<DescriptorIndex, OutputData>);
+      Object.keys(range)
         .sort() //Sort it to be deterministic
         .forEach(indexStr => {
           const index = indexStr === 'non-ranged' ? indexStr : Number(indexStr);
           utxos.push(
-            ...deriveUtxosAndBalanceByScriptPubKey(
+            ...deriveUtxosAndBalanceByOutput(
               networkId,
-              txInfoRecords,
-              descriptors,
+              txMap,
+              descriptorMap,
               expression,
               index,
               txStatus
@@ -395,8 +391,8 @@ export function deriveDataFactory({
           );
         });
     }
-    //Deduplicate in case of expression: Array<Expression> with duplicated
-    //expressions
+    //Deduplicate in case of expression: Array<Descriptor> with duplicated
+    //descriptorOrDescriptors
     const dedupedUtxos = [...new Set(utxos)];
     return dedupedUtxos;
   };
@@ -405,52 +401,52 @@ export function deriveDataFactory({
   //however the search space for expressions must be bounded
   //returns {balance, utxos}. The reference of utxos will be kept the same for
   //each tuple of txStatus x expressions
-  const deriveUtxosAndBalanceByExpressionsFactory = memoizee(
+  const deriveUtxosAndBalanceFactory = memoizee(
     (networkId: NetworkId) =>
       memoizee(
         (txStatus: TxStatus) =>
           memoizee(
-            (expressions: Array<Expression> | Expression) => {
+            (descriptorOrDescriptors: Array<Descriptor> | Descriptor) => {
               let lastUtxos: Array<Utxo> | null = null;
               let lastBalance: number;
               return memoizee(
                 (
-                  txInfoRecords: Record<TxId, TxInfo>,
-                  descriptors: Record<Expression, DescriptorInfo>
+                  txMap: Record<TxId, TxData>,
+                  descriptorMap: Record<Descriptor, DescriptorData>
                 ) => {
-                  const utxos = coreDeriveUtxosByExpressions(
+                  const utxos = coreDeriveUtxos(
                     networkId,
-                    descriptors,
-                    txInfoRecords,
-                    expressions,
+                    descriptorMap,
+                    txMap,
+                    descriptorOrDescriptors,
                     txStatus
                   );
                   if (lastUtxos && shallowEqualArrays(lastUtxos, utxos))
                     return { utxos: lastUtxos, balance: lastBalance };
                   lastUtxos = utxos;
-                  lastBalance = coreDeriveUtxosBalance(txInfoRecords, utxos);
+                  lastBalance = coreDeriveUtxosBalance(txMap, utxos);
                   return { utxos, balance: lastBalance };
                 },
                 { max: 1 }
               );
             },
-            { primitive: true, max: expressionsCacheSize } //potentially ininite search space. limit to 100 expressions per txStatus combination
+            { primitive: true, max: descriptorsCacheSize } //potentially ininite search space. limit to 100 descriptorOrDescriptors per txStatus combination
           ),
         { primitive: true } //unbounded cache (no max setting) since Search Space is small
       ),
     { primitive: true } //unbounded cache (no max setting) since Search Space is small
   );
 
-  const deriveUtxosAndBalanceByExpressions = (
+  const deriveUtxosAndBalance = (
     networkId: NetworkId,
-    txInfoRecords: Record<TxId, TxInfo>,
-    descriptors: Record<Expression, DescriptorInfo>,
-    expressions: Array<Expression> | Expression,
+    txMap: Record<TxId, TxData>,
+    descriptorMap: Record<Descriptor, DescriptorData>,
+    descriptorOrDescriptors: Array<Descriptor> | Descriptor,
     txStatus: TxStatus
   ) =>
-    deriveUtxosAndBalanceByExpressionsFactory(networkId)(txStatus)(expressions)(
-      txInfoRecords,
-      descriptors
+    deriveUtxosAndBalanceFactory(networkId)(txStatus)(descriptorOrDescriptors)(
+      txMap,
+      descriptorMap
     );
 
   const transactionFromHex = memoizee(Transaction.fromHex, {
@@ -459,7 +455,7 @@ export function deriveDataFactory({
   });
 
   const coreDeriveUtxosBalance = (
-    txInfoRecords: Record<TxId, TxInfo>,
+    txMap: Record<TxId, TxData>,
     utxos: Array<Utxo>
   ): number => {
     let balance = 0;
@@ -476,7 +472,7 @@ export function deriveDataFactory({
         throw new Error(`Undefined txId or vout for UTXO: ${utxo}`);
       const vout = parseInt(voutStr);
 
-      const txInfo = txInfoRecords[txId];
+      const txInfo = txMap[txId];
       if (!txInfo)
         throw new Error(`txInfo not saved for ${txId}, vout:${vout} - ${utxo}`);
       const txHex = txInfo.txHex;
@@ -490,34 +486,29 @@ export function deriveDataFactory({
     return balance;
   };
 
-  function scriptPubKeyHasRecords(
-    scriptPubKeyInfoRecords:
-      | Record<DescriptorIndex, ScriptPubKeyInfo>
-      | undefined
+  function outputHasRecords(
+    range: Record<DescriptorIndex, OutputData> | undefined
   ) {
-    if (scriptPubKeyInfoRecords === undefined) return false;
-    for (const prop in scriptPubKeyInfoRecords)
-      if (Object.prototype.hasOwnProperty.call(scriptPubKeyInfoRecords, prop))
-        return true;
+    if (range === undefined) return false;
+    for (const prop in range)
+      if (Object.prototype.hasOwnProperty.call(range, prop)) return true;
     return false;
   }
 
-  const coreDeriveExpressions = (
-    discoveryInfo: DiscoveryInfo,
+  const coreDeriveDescriptors = (
+    discoveryData: DiscoveryData,
     networkId: NetworkId
   ) => {
-    const descriptors = discoveryInfo[networkId].descriptors;
-    return Object.keys(descriptors)
-      .filter(expression =>
-        scriptPubKeyHasRecords(descriptors[expression]?.scriptPubKeyInfoRecords)
-      )
+    const descriptorMap = discoveryData[networkId].descriptorMap;
+    return Object.keys(descriptorMap)
+      .filter(descriptor => outputHasRecords(descriptorMap[descriptor]?.range))
       .sort();
   };
 
-  const deriveExpressionsFactory = memoizee(
+  const deriveDescriptorsFactory = memoizee(
     (networkId: NetworkId) => {
-      return memoizeOneWithShallowArraysCheck((discoveryInfo: DiscoveryInfo) =>
-        coreDeriveExpressions(discoveryInfo, networkId)
+      return memoizeOneWithShallowArraysCheck((discoveryData: DiscoveryData) =>
+        coreDeriveDescriptors(discoveryData, networkId)
       );
     },
     { primitive: true } //unbounded cache (no max setting) since Search Space is small
@@ -530,17 +521,17 @@ export function deriveDataFactory({
    * each unique networkId if the resulting expressions did not change.
    * This helps to avoid unnecessary data processing and memory usage.
    *
-   * @param {DiscoveryInfo} discoveryInfo - Information regarding discovery.
-   * @param {NetworkId} networkId - The network identifier.
-   * @returns {Array<Expression>} - Descriptor expressions.
+   * @returns Descriptor expressions.
    */
-  const deriveExpressions = (
-    discoveryInfo: DiscoveryInfo,
+  const deriveDescriptors = (
+    /** The network identifier. */
+    discoveryData: DiscoveryData,
+    /** Descriptor expressions. */
     networkId: NetworkId
-  ) => deriveExpressionsFactory(networkId)(discoveryInfo);
+  ) => deriveDescriptorsFactory(networkId)(discoveryData);
 
   /**
-   * Derives the accounts from the discoveryInfo.
+   * Derives the accounts from the discoveryData.
    * Descriptor expressions of an account share the same pattern, except for
    * their keyInfo, which can end with either /0/* or /1/*.
    * An Account is represented by its external descriptor.
@@ -549,10 +540,10 @@ export function deriveDataFactory({
    * @returns {Array<Account>}- Returns an array of accounts.
    */
   const coreDeriveAccounts = (
-    discoveryInfo: DiscoveryInfo,
+    discoveryData: DiscoveryData,
     networkId: NetworkId
   ): Array<Account> => {
-    const expressions = coreDeriveExpressions(discoveryInfo, networkId);
+    const expressions = coreDeriveDescriptors(discoveryData, networkId);
     const accounts: Array<Account> = [];
 
     const network = getNetwork(networkId);
@@ -579,32 +570,32 @@ export function deriveDataFactory({
 
   const deriveAccountsFactory = memoizee(
     (networkId: NetworkId) => {
-      return memoizeOneWithShallowArraysCheck((discoveryInfo: DiscoveryInfo) =>
-        coreDeriveAccounts(discoveryInfo, networkId)
+      return memoizeOneWithShallowArraysCheck((discoveryData: DiscoveryData) =>
+        coreDeriveAccounts(discoveryData, networkId)
       );
     },
     { primitive: true } //unbounded cache (no max setting) since Search Space is small
   );
 
-  const deriveAccounts = (discoveryInfo: DiscoveryInfo, networkId: NetworkId) =>
-    deriveAccountsFactory(networkId)(discoveryInfo);
+  const deriveAccounts = (discoveryData: DiscoveryData, networkId: NetworkId) =>
+    deriveAccountsFactory(networkId)(discoveryData);
 
-  const deriveAccountExpressions = memoizee(
-    (account: Account): [Expression, Expression] => [
+  const deriveAccountDescriptors = memoizee(
+    (account: Account): [Descriptor, Descriptor] => [
       account,
       account.replace(/\/0\/\*/g, '/1/*')
     ],
-    { primitive: true, max: expressionsCacheSize }
+    { primitive: true, max: descriptorsCacheSize }
   );
 
   return {
     deriveScriptPubKey,
-    deriveUtxosAndBalanceByScriptPubKey,
-    deriveUtxosAndBalanceByExpressions,
-    deriveExpressions,
+    deriveUtxosAndBalanceByOutput,
+    deriveUtxosAndBalance,
+    deriveDescriptors,
     deriveAccounts,
-    deriveAccountExpressions,
-    deriveHistoryByScriptPubKey,
+    deriveAccountDescriptors,
+    deriveHistoryByOutput,
     deriveHistory,
     transactionFromHex
   };

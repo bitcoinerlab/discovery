@@ -93,30 +93,30 @@ for (const network of [networks.bitcoin]) {
           console.timeEnd('SecondCall');
 
           for (const account of discovery.getAccounts({ network })) {
+            const descriptors = discovery.getAccountDescriptors({ account });
             console.log(
               `Next external index: ${discovery.getNextIndex({
-                expression: discovery.getAccountExpressions({ account })[0],
+                descriptor: descriptors[0],
                 network,
                 txStatus: TxStatus.ALL
               })}`
             );
             console.log(
               `Next internal index: ${discovery.getNextIndex({
-                expression: discovery.getAccountExpressions({ account })[1],
+                descriptor: descriptors[1],
                 network,
                 txStatus: TxStatus.ALL
               })}`
             );
-            const expressions = discovery.getAccountExpressions({ account });
-            const { balance } = discovery.getUtxos({
+            const { balance } = discovery.getUtxosAndBalance({
               network,
-              expressions,
+              descriptors,
               txStatus: TxStatus.ALL
             });
-            console.log(`Balance for ${expressions}: ${balance}`);
-            const txHistory = discovery.getHistory({ expressions, network });
+            console.log(`Balance for ${descriptors}: ${balance}`);
+            const txHistory = discovery.getHistory({ descriptors, network });
             console.log(
-              `Number of txs for ${expressions}: ${txHistory.length}`
+              `Number of txs for ${descriptors}: ${txHistory.length}`
             );
             //console.log(
             //  `Transaction for first transaction of ${expressions}: ${discovery.getTxHex(

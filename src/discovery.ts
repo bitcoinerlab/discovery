@@ -1,6 +1,9 @@
 // Copyright (c) 2023 Jose-Luis Landabaso - https://bitcoinerlab.com
 // Distributed under the MIT software license
 
+//TODO: Important to emphasize that we don't allow different descritptors for
+//the same output
+
 import { produce } from 'immer';
 import { shallowEqualArrays } from 'shallow-equal';
 
@@ -15,17 +18,18 @@ import type { BIP32Interface } from 'bip32';
 import type { Explorer } from '@bitcoinerlab/explorer';
 
 import {
+  OutputCriteria,
   NetworkId,
   TxId,
   TxHex,
-  TxInfo,
-  ScriptPubKeyInfo,
-  Expression,
+  TxData,
+  OutputData,
+  Descriptor,
   Account,
   DescriptorIndex,
-  DescriptorInfo,
-  NetworkInfo,
-  DiscoveryInfo,
+  DescriptorData,
+  NetworkData,
+  DiscoveryData,
   Utxo,
   TxStatus
 } from './types';
@@ -54,7 +58,7 @@ export function DiscoveryFactory(
    */
   class Discovery {
     #derivers: ReturnType<typeof deriveDataFactory>;
-    discoveryInfo: DiscoveryInfo;
+    #discoveryData: DiscoveryData;
 
     /**
      * Constructs a Discovery instance. Discovery is used to discover funds
@@ -64,8 +68,8 @@ export function DiscoveryFactory(
      */
     constructor(
       {
-        expressionsCacheSize = 1000,
-        indicesPerExpressionCacheSize = 10000
+        descriptorsCacheSize = 1000,
+        indicesPerDescriptorCacheSize = 10000
       }: {
         /**
          * Cache size limit for descriptor expressions per network.
@@ -82,10 +86,10 @@ export function DiscoveryFactory(
          * and immutability. Set to 0 for unbounded caches.
          * @defaultValue 1000
          */
-        expressionsCacheSize: number;
+        descriptorsCacheSize: number;
         /**
          * Cache size limit for indices per expression, related to the number of addresses
-         * in ranged descriptor expressions. Similar to the `expressionsCacheSize`,
+         * in ranged descriptor expressions. Similar to the `descriptorsCacheSize`,
          * this cache is used to speed up data queries and avoid recomputations.
          * As each expression can have multiple indices, the number of indices can grow rapidly,
          * leading to increased memory usage. Setting a limit helps keep memory usage in check,
@@ -93,25 +97,25 @@ export function DiscoveryFactory(
          * Set to 0 for unbounded caches.
          * @defaultValue 10000
          */
-        indicesPerExpressionCacheSize: number;
+        indicesPerDescriptorCacheSize: number;
       } = {
-        expressionsCacheSize: 1000,
-        indicesPerExpressionCacheSize: 10000
+        descriptorsCacheSize: 1000,
+        indicesPerDescriptorCacheSize: 10000
       }
     ) {
-      this.discoveryInfo = {} as DiscoveryInfo;
+      this.#discoveryData = {} as DiscoveryData;
       for (const networkId of Object.values(NetworkId)) {
-        const txInfoRecords: Record<TxId, TxInfo> = {};
-        const descriptors: Record<Expression, DescriptorInfo> = {};
-        const networkInfo: NetworkInfo = {
-          descriptors,
-          txInfoRecords
+        const txMap: Record<TxId, TxData> = {};
+        const descriptorMap: Record<Descriptor, DescriptorData> = {};
+        const networkData: NetworkData = {
+          descriptorMap,
+          txMap
         };
-        this.discoveryInfo[networkId] = networkInfo;
+        this.#discoveryData[networkId] = networkData;
       }
       this.#derivers = deriveDataFactory({
-        expressionsCacheSize,
-        indicesPerExpressionCacheSize
+        descriptorsCacheSize,
+        indicesPerDescriptorCacheSize
       });
     }
 
@@ -138,25 +142,25 @@ export function DiscoveryFactory(
        */
       scriptPubKey: Buffer;
     }) {
-      const descriptors = this.discoveryInfo[networkId].descriptors;
-      const expressions = this.#derivers.deriveExpressions(
-        this.discoveryInfo,
+      const descriptorMap = this.#discoveryData[networkId].descriptorMap;
+      const descriptors = this.#derivers.deriveDescriptors(
+        this.#discoveryData,
         networkId
       );
-      expressions.forEach(expression => {
-        const scriptPubKeyInfoRecords =
-          descriptors[expression]?.scriptPubKeyInfoRecords ||
-          ({} as Record<DescriptorIndex, ScriptPubKeyInfo>);
+      descriptors.forEach(descriptor => {
+        const range =
+          descriptorMap[descriptor]?.range ||
+          ({} as Record<DescriptorIndex, OutputData>);
 
-        Object.keys(scriptPubKeyInfoRecords).forEach(indexStr => {
+        Object.keys(range).forEach(indexStr => {
           const index = indexStr === 'non-ranged' ? indexStr : Number(indexStr);
           if (
             scriptPubKey.equals(
-              this.#derivers.deriveScriptPubKey(networkId, expression, index) //This will be very fast (uses memoization)
+              this.#derivers.deriveScriptPubKey(networkId, descriptor, index) //This will be very fast (uses memoization)
             )
           ) {
             throw new Error(
-              `The provided scriptPubKey is already set: ${expression}, ${index}.`
+              `The provided scriptPubKey is already set: ${descriptor}, ${index}.`
             );
           }
         });
@@ -164,46 +168,54 @@ export function DiscoveryFactory(
     }
 
     /**
-     * Asynchronously discovers a scriptPubKey, given a descriptor expression,
-     * descriptor index, and network. It first retrieves the scriptPubKey,
+     * Asynchronously discovers an output, given a descriptor expression,
+     * descriptor index, and network. It first retrieves the output,
      * computes its scriptHash, and fetches the transaction history associated
      * with this scriptHash from the explorer. It then updates the internal
-     * discoveryInfo accordingly.
+     * discoveryData accordingly.
      *
-     * This function has side-effects as it modifies the internal discoveryInfo
+     * This function has side-effects as it modifies the internal discoveryData
      * state of the Discovery class instance. This state keeps track of
      * transaction info and descriptors relevant to the discovery process.
      *
      * This method is useful for updating the state of the wallet based on new
      * transactions and scriptPubKeys.
      *
+     * This method does not retrieve the txHex associated with the Output.
+     * An additional #discoverTxs must be performed.
+     *
      * @param options
      * @returns A promise that resolves to a boolean indicating whether any transactions were found for the provided scriptPubKey.
      */
-    async discoverScriptPubKey({
-      expression,
+    async #discoverOutput({
+      descriptor,
       index,
       network
     }: {
       /**
        * The descriptor expression associated with the scriptPubKey to discover.
        */
-      expression: Expression;
+      descriptor: Descriptor;
       /**
-       * The descriptor index associated with the scriptPubKey to discover.
+       * The descriptor index associated with the scriptPubKey to discover (if ranged).
        */
-      index: DescriptorIndex;
+      index?: number;
       /**
        * The network associated with the scriptPubKey to discover.
        */
       network: Network;
     }): Promise<boolean> {
-      expression = canonicalize(expression, network) as string;
+      if (
+        (typeof index !== 'undefined' && descriptor.indexOf('*') === -1) ||
+        (typeof index === 'undefined' && descriptor.indexOf('*') !== -1)
+      )
+        throw new Error(`Pass index for ranged descriptors`);
+      const internalIndex = typeof index === 'number' ? index : 'non-ranged';
       const networkId = getNetworkId(network);
       const scriptPubKey = this.#derivers.deriveScriptPubKey(
         networkId,
-        expression,
-        index
+        canonicalize(descriptor, network) as string,
+        internalIndex
       );
       //https://electrumx.readthedocs.io/en/latest/protocol-basics.html#script-hashes
       const scriptHash = Buffer.from(crypto.sha256(scriptPubKey))
@@ -220,41 +232,39 @@ export function DiscoveryFactory(
       });
       //console.log('TRACE', { scriptHash, txHistoryArray });
 
-      this.discoveryInfo = produce(this.discoveryInfo, discoveryInfo => {
-        // Update txInfoRecords
-        const txInfoRecords = discoveryInfo[networkId].txInfoRecords;
+      this.#discoveryData = produce(this.#discoveryData, discoveryData => {
+        // Update txMap
+        const txMap = discoveryData[networkId].txMap;
         txHistoryArray.forEach(({ txId, irreversible, blockHeight }) => {
-          const txInfo = txInfoRecords[txId];
-          if (!txInfo) {
-            txInfoRecords[txId] = { irreversible, blockHeight };
+          const txData = txMap[txId];
+          if (!txData) {
+            txMap[txId] = { irreversible, blockHeight };
           } else {
-            txInfo.irreversible = irreversible;
-            txInfo.blockHeight = blockHeight;
+            txData.irreversible = irreversible;
+            txData.blockHeight = blockHeight;
           }
         });
-        //Update descriptors
-        const scriptPubKeyInfoRecords =
-          discoveryInfo[networkId].descriptors[expression]
-            ?.scriptPubKeyInfoRecords;
-        if (!scriptPubKeyInfoRecords)
+        //Update descriptorMap
+        const range = discoveryData[networkId].descriptorMap[descriptor]?.range;
+        if (!range)
           throw new Error(
-            `scriptPubKeyInfoRecords does not exist for ${networkId} and ${expression}`
+            `range does not exist for ${networkId} and ${descriptor}`
           );
-        const scriptPubKeyInfo = scriptPubKeyInfoRecords[index];
+        const outputData = range[internalIndex];
         const txIds = txHistoryArray.map(txHistory => txHistory.txId);
         if (txIds.length) {
-          if (!scriptPubKeyInfo) {
+          if (!outputData) {
             this.#ensureScriptPubKeyUniqueness({ networkId, scriptPubKey });
-            scriptPubKeyInfoRecords[index] = { txIds, timeFetched: now() };
+            range[internalIndex] = { txIds, timeFetched: now() };
           } else {
-            if (!shallowEqualArrays(txIds, scriptPubKeyInfo.txIds)) {
-              scriptPubKeyInfo.txIds = txIds;
+            if (!shallowEqualArrays(txIds, outputData.txIds)) {
+              outputData.txIds = txIds;
             }
-            scriptPubKeyInfo.timeFetched = now();
+            outputData.timeFetched = now();
           }
         } else {
-          if (scriptPubKeyInfo) {
-            delete scriptPubKeyInfoRecords[index];
+          if (outputData) {
+            delete range[internalIndex];
           }
         }
       });
@@ -262,13 +272,13 @@ export function DiscoveryFactory(
     }
 
     /**
-     * Asynchronously fetches all transactions associated with a specific network
-     * for all used scriptPubKeys.
+     * Asynchronously fetches all transactions associated with a specific
+     * network for all used outputs.
      *
      * @param options
-     * @returns Resolves when all the transactions for the provided network have been fetched and stored in discoveryInfo.
+     * @returns Resolves when all the transactions for the provided network have been fetched and stored in discoveryData.
      */
-    async discoverTxs({
+    async #discoverTxs({
       network
     }: {
       /**
@@ -278,43 +288,46 @@ export function DiscoveryFactory(
     }) {
       const txHexRecords: Record<TxId, TxHex> = {};
       const networkId = getNetworkId(network);
-      const networkInfo = this.discoveryInfo[networkId];
-      for (const expression in networkInfo.descriptors) {
-        const scriptPubKeyInfoRecords =
-          networkInfo.descriptors[expression]?.scriptPubKeyInfoRecords || [];
-        for (const index in scriptPubKeyInfoRecords) {
-          const txIds = scriptPubKeyInfoRecords[index]?.txIds;
+      const networkData = this.#discoveryData[networkId];
+      for (const expression in networkData.descriptorMap) {
+        const range = networkData.descriptorMap[expression]?.range || [];
+        for (const index in range) {
+          const txIds = range[index]?.txIds;
           if (!txIds)
             throw new Error(
               `Error: cannot retrieve txs for nonexising scriptPubKey: ${networkId}, ${expression}, ${index}`
             );
           for (const txId of txIds)
-            if (!networkInfo.txInfoRecords[txId]?.txHex)
+            if (!networkData.txMap[txId]?.txHex)
               txHexRecords[txId] = await explorer.fetchTx(txId);
         }
       }
       if (Object.keys(txHexRecords).length) {
-        this.discoveryInfo = produce(this.discoveryInfo, discoveryInfo => {
+        this.#discoveryData = produce(this.#discoveryData, discoveryData => {
           for (const txId in txHexRecords) {
             const txHex = txHexRecords[txId];
             if (!txHex) throw new Error(`txHex not retrieved for ${txId}`);
-            const txInfo = discoveryInfo[networkId].txInfoRecords[txId];
-            if (!txInfo) throw new Error(`txInfo does not exist for ${txId}`);
-            txInfo.txHex = txHex;
+            const txData = discoveryData[networkId].txMap[txId];
+            if (!txData) throw new Error(`txData does not exist for ${txId}`);
+            txData.txHex = txHex;
           }
         });
       }
     }
 
     /**
-     * Asynchronously fetches one or more descriptor expressions, including
-     * their associated transaction data.
+     * Asynchronously fetches one or more descriptor expressions, retrieving
+     * all the historical txs associated with the outputs represented by the
+     * expressions (including txHex).
      *
      * @param options
-     * @returns Resolves when the fetch operation completes. If used expressions are found, waits for the discovery of associated transactions.
+     * @returns Resolves when the fetch operation completes. If used expressions
+     * are found, waits for the discovery of associated transactions.
      */
     async discover({
-      expressions,
+      descriptor,
+      index,
+      descriptors,
       gapLimit = 20,
       network,
       onUsed,
@@ -322,54 +335,76 @@ export function DiscoveryFactory(
       next
     }: {
       /**
-       * The descriptor expression(s) to be fetched. Can be a single expression or an array.
+       * Descriptor expression for a single output. Use either `descriptor` or
+       * `descriptors`, but not both simultaneously.
        */
-      expressions: Expression | Array<Expression>;
+      descriptor?: Descriptor;
+
       /**
-       * The gap limit for the fetch operation.
+       * An optional index associated with a ranged `descriptor`. Not applicable
+       * when using the `descriptors` array, even if its elements are ranged.
+       */
+      index?: number;
+
+      /**
+       * Array of descriptor expressions. Use either `descriptors` or `descriptor`,
+       * but not both simultaneously.
+       */
+      descriptors?: Array<Descriptor>;
+
+      /**
+       * The network to which the outputs belong.
+       */
+      network: Network;
+      /**
+       * The gap limit for the fetch operation when retrieving ranged descriptors.
        * @defaultValue 20
        */
       gapLimit?: number;
       /**
-       * The network associated with the expressions.
+       * Optional callback function. Invoked when a used output described by a descriptor is found. Provided with the same input descriptor expressions.
        */
-      network: Network;
+      onUsed?: (
+        descriptorOrDescriptors: Descriptor | Array<Descriptor>
+      ) => void;
       /**
-       * Optional callback function. Invoked when a used expression is found. Provided with the same input descriptor expressions.
+       * Optional callback function. Invoked when a used descriptor is started to being checked. Provided with the same input descriptor expressions.
        */
-      onUsed?: (expression: Expression | Array<Expression>) => void;
+      onChecking?: (
+        descriptorOrDescriptors: Descriptor | Array<Descriptor>
+      ) => void;
       /**
-       * Optional callback function. Invoked when a used expression is started to being checked. Provided with the same input descriptor expressions.
-       */
-      onChecking?: (expression: Expression | Array<Expression>) => void;
-      /**
-       * Optional function that returns a Promise. Invoked once a used expression is found and the Promise it returns is awaited.
+       * Optional function that returns a Promise. Invoked once a used descriptor is found and the Promise it returns is awaited.
        */
       next?: () => Promise<void>;
     }) {
-      const inputExpressions = expressions;
-      if (onChecking) onChecking(inputExpressions);
-      expressions = canonicalize(expressions, network);
+      const descriptorOrDescriptors = descriptor || descriptors;
+      if ((descriptor && descriptors) || !descriptorOrDescriptors)
+        throw new Error(`Pass descriptor or descriptors`);
+      if (
+        typeof index !== 'undefined' &&
+        (descriptors || !descriptor?.includes('*'))
+      )
+        throw new Error(`Don't pass index`);
+      if (onChecking) onChecking(descriptorOrDescriptors);
+      const canonicalInput = canonicalize(descriptorOrDescriptors, network);
       let nextPromise;
-      let usedExpressions = false;
-      let usedExpressionsNotified = false;
+      let usedDescriptors = false;
+      let usedDescriptorsNotified = false;
 
-      const expressionArray = Array.isArray(expressions)
-        ? expressions
-        : [expressions];
+      const descriptorArray = Array.isArray(canonicalInput)
+        ? canonicalInput
+        : [canonicalInput];
       const networkId = getNetworkId(network);
-      for (const expression of expressionArray) {
-        this.discoveryInfo = produce(this.discoveryInfo, discoveryInfo => {
+      for (const descriptor of descriptorArray) {
+        this.#discoveryData = produce(this.#discoveryData, discoveryData => {
           const descriptorInfo =
-            discoveryInfo[networkId].descriptors[expression];
+            discoveryData[networkId].descriptorMap[descriptor];
           if (!descriptorInfo) {
-            discoveryInfo[networkId].descriptors[expression] = {
+            discoveryData[networkId].descriptorMap[descriptor] = {
               timeFetched: 0,
               fetching: true,
-              scriptPubKeyInfoRecords: {} as Record<
-                DescriptorIndex,
-                ScriptPubKeyInfo
-              >
+              range: {} as Record<DescriptorIndex, OutputData>
             };
           } else {
             descriptorInfo.fetching = true;
@@ -377,17 +412,17 @@ export function DiscoveryFactory(
         });
 
         let gap = 0;
-        let index = 0;
-        const isRanged = expression.indexOf('*') !== -1;
-        while (isRanged ? gap < gapLimit : index < 1) {
-          const used = await this.discoverScriptPubKey({
-            expression,
-            index: isRanged ? index : 'non-ranged',
+        index = index || 0; //If it was a passed argument use it; othewise start at zero
+        const isRanged = descriptor.indexOf('*') !== -1;
+        while (isRanged ? gap < gapLimit : index < 1 /*once if unranged*/) {
+          const used = await this.#discoverOutput({
+            descriptor,
+            ...(isRanged ? { index } : {}),
             network
           });
 
           if (used) {
-            usedExpressions = true;
+            usedDescriptors = true;
             gap = 0;
           } else gap++;
 
@@ -395,17 +430,17 @@ export function DiscoveryFactory(
 
           index++;
 
-          if (used && onUsed && usedExpressionsNotified === false) {
-            onUsed(inputExpressions);
-            usedExpressionsNotified = true;
+          if (used && onUsed && usedDescriptorsNotified === false) {
+            onUsed(descriptorOrDescriptors);
+            usedDescriptorsNotified = true;
           }
         }
-        this.discoveryInfo = produce(this.discoveryInfo, discoveryInfo => {
+        this.#discoveryData = produce(this.#discoveryData, discoveryData => {
           const descriptorInfo =
-            discoveryInfo[networkId].descriptors[expression];
+            discoveryData[networkId].descriptorMap[descriptor];
           if (!descriptorInfo)
             throw new Error(
-              `Descriptor for ${networkId} and ${expression} does not exist`
+              `Descriptor for ${networkId} and ${descriptor} does not exist`
             );
           descriptorInfo.fetching = false;
           descriptorInfo.timeFetched = now();
@@ -413,7 +448,7 @@ export function DiscoveryFactory(
       }
 
       const promises = [];
-      if (usedExpressions) promises.push(this.discoverTxs({ network }));
+      if (usedDescriptors) promises.push(this.#discoverTxs({ network }));
       if (nextPromise) promises.push(nextPromise);
       await Promise.all(promises);
     }
@@ -466,7 +501,7 @@ export function DiscoveryFactory(
       for (const expressionFn of [pkhBIP32, shWpkhBIP32, wpkhBIP32]) {
         let accountNumber = 0;
         const next = async () => {
-          const expressions = [0, 1].map(change =>
+          const descriptors = [0, 1].map(change =>
             expressionFn({
               masterNode,
               network,
@@ -475,14 +510,14 @@ export function DiscoveryFactory(
               index: '*'
             })
           );
-          const account = expressions[0]!;
-          //console.log('STANDARD', { expressions, gapLimit, account });
+          const account = descriptors[0]!;
+          //console.log('STANDARD', { descriptors, gapLimit, account });
           accountNumber++;
           const onUsed = onAccountUsed && (() => onAccountUsed(account));
           const onChecking =
             onAccountChecking && (() => onAccountChecking(account));
           await this.discover({
-            expressions,
+            descriptors,
             gapLimit,
             network,
             next,
@@ -509,16 +544,16 @@ export function DiscoveryFactory(
      * provided network.
      *
      */
-    getExpressions({
+    getDescriptors({
       network
     }: {
       /**
        * The network associated with the descriptors.
        */
       network: Network;
-    }): Array<Expression> {
+    }): Array<Descriptor> {
       const networkId = getNetworkId(network);
-      return this.#derivers.deriveExpressions(this.discoveryInfo, networkId);
+      return this.#derivers.deriveDescriptors(this.#discoveryData, networkId);
     }
 
     /**
@@ -544,7 +579,7 @@ export function DiscoveryFactory(
       network: Network;
     }): Array<Account> {
       const networkId = getNetworkId(network);
-      return this.#derivers.deriveAccounts(this.discoveryInfo, networkId);
+      return this.#derivers.deriveAccounts(this.#discoveryData, networkId);
     }
 
     /**
@@ -559,73 +594,15 @@ export function DiscoveryFactory(
      * @returns An array of descriptor expressions
      * associated with the specified account.
      */
-    getAccountExpressions({
+    getAccountDescriptors({
       account
     }: {
       /**
        * The account associated with the descriptors.
        */
       account: Account;
-    }): [Expression, Expression] {
-      return this.#derivers.deriveAccountExpressions(account);
-    }
-
-    /**
-     * Retrieves unspent transaction outputs (UTXOs) and balance associated with
-     * a specific scriptPubKey, described by an expression and index within a
-     * specified network and transaction status.
-     *
-     * This method is useful for accessing the available funds for a specific
-     * scriptPubKey in the wallet, considering the transaction status
-     * (confirmed, unconfirmed, or both).
-     *
-     * The return value is computed based on the current state of discoveryInfo.
-     * The method uses memoization to maintain the same object reference for the
-     * returned result, given the same input parameters, as long as the
-     * corresponding UTXOs in discoveryInfo haven't changed.
-     * This can be useful in environments such as React where
-     * preserving object identity can prevent unnecessary re-renders.
-     *
-     * @param options
-     * @returns An object containing the UTXOs associated with the
-     * scriptPubKey and the total balance of these UTXOs.
-     */
-    getUtxosByScriptPubKey({
-      expression,
-      index,
-      network,
-      txStatus = TxStatus.ALL
-    }: {
-      /**
-       * The descriptor expression associated with the scriptPubKey.
-       */
-      expression: Expression;
-      /**
-       * The descriptor index associated with the scriptPubKey.
-       */
-      index: DescriptorIndex;
-      /**
-       * The network associated with the scriptPubKey.
-       */
-      network: Network;
-      /**
-       * The transaction status to consider when extracting UTXOs and balance.
-       * @defaultValue TxStatus.ALL
-       */
-      txStatus?: TxStatus;
-    }): { utxos: Array<Utxo>; balance: number } {
-      expression = canonicalize(expression, network) as string;
-      const networkId = getNetworkId(network);
-      const descriptors = this.discoveryInfo[networkId].descriptors;
-      const txInfoRecords = this.discoveryInfo[networkId].txInfoRecords;
-      return this.#derivers.deriveUtxosAndBalanceByScriptPubKey(
-        networkId,
-        txInfoRecords,
-        descriptors,
-        expression,
-        index,
-        txStatus
-      );
+    }): [Descriptor, Descriptor] {
+      return this.#derivers.deriveAccountDescriptors(account);
     }
 
     /**
@@ -637,71 +614,77 @@ export function DiscoveryFactory(
      * descriptor expressions in the wallet, considering the transaction status
      * (confirmed, unconfirmed, or both).
      *
-     * The return value is computed based on the current state of discoveryInfo.
+     * The return value is computed based on the current state of discoveryData.
      * The method uses memoization to maintain the same object reference for the
      * returned result, given the same input parameters, as long as the
-     * corresponding UTXOs in discoveryInfo haven't changed.
+     * corresponding UTXOs in discoveryData haven't changed.
      * This can be useful in environments such as React where
      * preserving object identity can prevent unnecessary re-renders.
      *
-     * @param options
+     * @param outputCriteria
      * @returns An object containing the UTXOs associated with the
      * scriptPubKeys and the total balance of these UTXOs.
      */
-    getUtxos({
-      expressions,
+    getUtxosAndBalance({
+      descriptor,
+      index,
+      descriptors,
       network,
       txStatus = TxStatus.ALL
-    }: {
-      /**
-       * The descriptor expression(s) associated with the scriptPubKeys.
-       * Can be a single expression or an array of expressions.
-       */
-      expressions: Expression | Array<Expression>;
-      /**
-       * The network associated with the scriptPubKeys.
-       */
-      network: Network;
-      /**
-       * The transaction status to consider when extracting UTXOs and balance.
-       * @defaultValue TxStatus.ALL
-       */
-      txStatus?: TxStatus;
-    }): { utxos: Array<Utxo>; balance: number } {
-      expressions = canonicalize(expressions, network);
-      const networkId = getNetworkId(network);
-      const descriptors = this.discoveryInfo[networkId].descriptors;
-      const txInfoRecords = this.discoveryInfo[networkId].txInfoRecords;
-      return this.#derivers.deriveUtxosAndBalanceByExpressions(
-        networkId,
-        txInfoRecords,
-        descriptors,
-        expressions,
-        txStatus
+    }: OutputCriteria): { utxos: Array<Utxo>; balance: number } {
+      if ((descriptor && descriptors) || !(descriptor || descriptors))
+        throw new Error(`Pass descriptor or descriptors`);
+      if (
+        typeof index !== 'undefined' &&
+        (descriptors || !descriptor?.includes('*'))
+      )
+        throw new Error(`Don't pass index`);
+      const descriptorOrDescriptors = canonicalize(
+        (descriptor || descriptors)!,
+        network
       );
+      const networkId = getNetworkId(network);
+      const descriptorMap = this.#discoveryData[networkId].descriptorMap;
+      const txMap = this.#discoveryData[networkId].txMap;
+
+      if (
+        descriptor &&
+        (typeof index !== 'undefined' || !descriptor.includes('*'))
+      ) {
+        const internalIndex = typeof index === 'number' ? index : 'non-ranged';
+        const txMap = this.#discoveryData[networkId].txMap;
+        return this.#derivers.deriveUtxosAndBalanceByOutput(
+          networkId,
+          txMap,
+          descriptorMap,
+          descriptorOrDescriptors as string,
+          internalIndex,
+          txStatus
+        );
+      } else
+        return this.#derivers.deriveUtxosAndBalance(
+          networkId,
+          txMap,
+          descriptorMap,
+          descriptorOrDescriptors,
+          txStatus
+        );
     }
 
     /**
      * Convenience function which internally invokes the
-     * `getUtxos(options).balance` method.
+     * `getUtxosAndBalance(options).balance` method.
      */
-    getBalance(options: {
-      /**
-       * The descriptor expression(s) associated with the scriptPubKeys.
-       * Can be a single expression or an array of expressions.
-       */
-      expressions: Expression | Array<Expression>;
-      /**
-       * The network associated with the scriptPubKeys.
-       */
-      network: Network;
-      /**
-       * The transaction status to consider when extracting UTXOs and balance.
-       * @defaultValue TxStatus.ALL
-       */
-      txStatus?: TxStatus;
-    }): number {
-      return this.getUtxos(options).balance;
+    getBalance(outputCriteria: OutputCriteria): number {
+      return this.getUtxosAndBalance(outputCriteria).balance;
+    }
+
+    /**
+     * Convenience function which internally invokes the
+     * `getUtxosAndBalance(options).utxos` method.
+     */
+    getUtxos(outputCriteria: OutputCriteria): Array<Utxo> {
+      return this.getUtxosAndBalance(outputCriteria).utxos;
     }
 
     /**
@@ -716,7 +699,7 @@ export function DiscoveryFactory(
      */
     getNextIndex({
       network,
-      expression,
+      descriptor,
       txStatus = TxStatus.ALL
     }: {
       /**
@@ -727,7 +710,7 @@ export function DiscoveryFactory(
        * The ranged descriptor expression for which to retrieve the next
        * available index.
        */
-      expression: Expression;
+      descriptor: Descriptor;
       /**
        * A scriptPubKey will be considered as used when
        * its transaction status is txStatus
@@ -736,18 +719,18 @@ export function DiscoveryFactory(
        */
       txStatus?: TxStatus;
     }) {
-      if (!expression || expression.indexOf('*') === -1)
-        throw new Error(`Error: invalid ranged expression: ${expression}`);
+      if (!descriptor || descriptor.indexOf('*') === -1)
+        throw new Error(`Error: invalid ranged descriptor: ${descriptor}`);
 
       const networkId = getNetworkId(network);
-      const descriptors = this.discoveryInfo[networkId].descriptors;
-      const txInfoRecords = this.discoveryInfo[networkId].txInfoRecords;
+      const descriptorMap = this.#discoveryData[networkId].descriptorMap;
+      const txMap = this.#discoveryData[networkId].txMap;
       let index = 0;
       while (
-        this.#derivers.deriveHistoryByScriptPubKey(
-          txInfoRecords,
-          descriptors,
-          expression,
+        this.#derivers.deriveHistoryByOutput(
+          txMap,
+          descriptorMap,
+          descriptor,
           index,
           txStatus
         ).length
@@ -757,110 +740,68 @@ export function DiscoveryFactory(
     }
 
     /**
-     * Retrieves the transaction history for a specific script public key.
-     *
-     * This method is useful for fetching transaction records associated with a specific
-     * script public key within a specified network and transaction status.
-     *
-     * The return value is computed based on the current state of discoveryInfo. The method
-     * uses memoization to maintain the same object reference for the returned result, given
-     * the same input parameters, as long as the corresponding transaction records in
-     * discoveryInfo haven't changed.
-     *
-     * This can be useful in environments such as React where preserving object identity can
-     * prevent unnecessary re-renders.
-     *
-     * @param options
-     * @returns An array containing transaction info associated with the script public key.
-     */
-    getHistoryByScriptPubKey({
-      expression,
-      index,
-      network,
-      txStatus = TxStatus.ALL
-    }: {
-      /**
-       * The descriptor expression.
-       */
-      expression: Expression;
-      /**
-       * The index in the descriptor.
-       */
-      index: DescriptorIndex;
-      /**
-       * The network associated with the scriptPubKey.
-       */
-      network: Network;
-      /**
-       * The transaction status to consider when fetching transaction history.
-       * @defaultValue TxStatus.ALL
-       */
-      txStatus?: TxStatus;
-    }): Array<TxInfo> {
-      expression = canonicalize(expression, network) as string;
-      const networkId = getNetworkId(network);
-      const descriptors = this.discoveryInfo[networkId].descriptors;
-      const txInfoRecords = this.discoveryInfo[networkId].txInfoRecords;
-      return this.#derivers.deriveHistoryByScriptPubKey(
-        txInfoRecords,
-        descriptors,
-        expression,
-        index,
-        txStatus
-      );
-    }
-
-    /**
      * Retrieves the transaction history for one or more descriptor expressions.
      *
      * This method is useful for accessing transaction records associated with one or more
      * descriptor expressions within a specified network and transaction status.
      *
-     * The return value is computed based on the current state of discoveryInfo. The method
+     * The return value is computed based on the current state of discoveryData. The method
      * uses memoization to maintain the same object reference for the returned result, given
      * the same input parameters, as long as the corresponding transaction records in
-     * discoveryInfo haven't changed.
+     * discoveryData haven't changed.
      *
      * This can be useful in environments such as React where preserving object identity can
      * prevent unnecessary re-renders.
      *
-     * @param options
+     * @param outputCriteria
      * @returns An array containing transaction info associated with the descriptor expressions.
      */
     getHistory({
-      expressions,
+      descriptor,
+      index,
+      descriptors,
       network,
       txStatus = TxStatus.ALL
-    }: {
-      /**
-       * One or more descriptor expressions.
-       */
-      expressions: Expression | Array<Expression>;
-      /**
-       * The network associated with the descriptor expressions.
-       */
-      network: Network;
-      /**
-       * The transaction status to consider when fetching transaction history.
-       * @defaultValue TxStatus.ALL
-       */
-      txStatus?: TxStatus;
-    }): Array<TxInfo> {
-      expressions = canonicalize(expressions, network);
-      const networkId = getNetworkId(network);
-      const descriptors = this.discoveryInfo[networkId].descriptors;
-      const txInfoRecords = this.discoveryInfo[networkId].txInfoRecords;
-      return this.#derivers.deriveHistory(
-        txInfoRecords,
-        descriptors,
-        expressions,
-        txStatus
+    }: OutputCriteria): Array<TxData> {
+      if ((descriptor && descriptors) || !(descriptor || descriptors))
+        throw new Error(`Pass descriptor or descriptors`);
+      if (
+        typeof index !== 'undefined' &&
+        (descriptors || !descriptor?.includes('*'))
+      )
+        throw new Error(`Don't pass index`);
+      const descriptorOrDescriptors = canonicalize(
+        (descriptor || descriptors)!,
+        network
       );
+      const networkId = getNetworkId(network);
+      const descriptorMap = this.#discoveryData[networkId].descriptorMap;
+      const txMap = this.#discoveryData[networkId].txMap;
+
+      if (
+        descriptor &&
+        (typeof index !== 'undefined' || !descriptor.includes('*'))
+      ) {
+        const internalIndex = typeof index === 'number' ? index : 'non-ranged';
+        return this.#derivers.deriveHistoryByOutput(
+          txMap,
+          descriptorMap,
+          descriptorOrDescriptors as string,
+          internalIndex,
+          txStatus
+        );
+      } else
+        return this.#derivers.deriveHistory(
+          txMap,
+          descriptorMap,
+          descriptorOrDescriptors,
+          txStatus
+        );
     }
 
     /**
      * Retrieves the hexadecimal representation of a transaction (TxHex) from the
-     * discoveryInfo given the transaction ID (TxId) or a Unspent Transaction Output (Utxo)
+     * discoveryData given the transaction ID (TxId) or a Unspent Transaction Output (Utxo)
      * as well as the network in which the transaction occurred.
      *
      * @param options
@@ -883,7 +824,7 @@ export function DiscoveryFactory(
       const networkId = getNetworkId(network);
       const txId = tx.indexOf(':') === -1 ? tx : tx.split(':')[0];
       if (!txId) throw new Error(`Error: invalid tx`);
-      const txHex = this.discoveryInfo[networkId].txInfoRecords[txId]?.txHex;
+      const txHex = this.#discoveryData[networkId].txMap[txId]?.txHex;
       if (!txHex) throw new Error(`Error: txHex not found`);
       return txHex;
     }
@@ -920,20 +861,12 @@ export function DiscoveryFactory(
     }
 
     /**
-     * Given a UTXO, this function retrieves the scriptPubKeys that can spend
-     * the UTXO.
-     *
-     * It is important to note that a single UTXO might have multiple
-     * scriptPubKeys. This can occur in scenarios where the UTXO has multiple
-     * spending conditions that can be satisfied differently by the discovered
-     * expressions.
-     *
-     * To ensure high flexibility, the returned scriptPubKeys are represented by
-     * their descriptor expression and index (in cases of BIP32 ranged
-     * descriptors). Additionally, this function provides the txHex of the
-     * preceding transaction and its output index (vout) for convenience.
+     * Given a UTXO, this function retrieves the descriptor associated
+     * with the UTXO. In this function, the output is represented by its
+     * descriptor expression (and its corresponding index for
+     * ranged-descriptors).
      */
-    getScriptPubKeysByUtxo({
+    getUTXODescriptor({
       network,
       utxo
     }: {
@@ -945,12 +878,12 @@ export function DiscoveryFactory(
        * The UTXO.
        */
       utxo: Utxo;
-    }): Array<{
-      expression: Expression;
-      index: DescriptorIndex;
-      vout: number;
-      txHex: TxHex;
-    }> {
+    }):
+      | {
+          descriptor: Descriptor;
+          index?: number;
+        }
+      | undefined {
       const networkId = getNetworkId(network);
       const split = utxo.split(':');
       if (split.length !== 2) throw new Error(`Error: invalid utxo: ${utxo}`);
@@ -961,50 +894,47 @@ export function DiscoveryFactory(
       const vout = parseInt(strVout);
       if (vout.toString() !== strVout)
         throw new Error(`Error: invalid utxo: ${utxo}`);
-      const txHex = this.discoveryInfo[networkId].txInfoRecords[txId]?.txHex;
+      const txHex = this.#discoveryData[networkId].txMap[txId]?.txHex;
       if (!txHex) throw new Error(`Error: txHex not found for ${utxo}`);
 
-      const descriptors = this.discoveryInfo[networkId].descriptors;
-      const expressions = this.#derivers.deriveExpressions(
-        this.discoveryInfo,
+      const descriptorMap = this.#discoveryData[networkId].descriptorMap;
+      const descriptors = this.#derivers.deriveDescriptors(
+        this.#discoveryData,
         networkId
       );
-      const scriptPubKeys: Array<{
-        expression: Expression;
-        index: DescriptorIndex;
-        vout: number;
-        txHex: TxHex;
-      }> = [];
-      expressions.forEach(expression => {
-        const scriptPubKeyInfoRecords =
-          descriptors[expression]?.scriptPubKeyInfoRecords ||
-          ({} as Record<DescriptorIndex, ScriptPubKeyInfo>);
+      let output:
+        | {
+            descriptor: Descriptor;
+            index?: number;
+          }
+        | undefined;
+      descriptors.forEach(descriptor => {
+        const range =
+          descriptorMap[descriptor]?.range ||
+          ({} as Record<DescriptorIndex, OutputData>);
 
-        Object.keys(scriptPubKeyInfoRecords).forEach(indexStr => {
-          const index = indexStr === 'non-ranged' ? indexStr : Number(indexStr);
+        Object.keys(range).forEach(indexStr => {
+          const isRanged = indexStr !== 'non-ranged';
+          const index = isRanged && Number(indexStr);
           if (
-            this.getUtxosByScriptPubKey({
-              expression,
-              index,
+            this.getUtxosAndBalance({
+              descriptor,
+              ...(isRanged ? { index: Number(indexStr) } : {}),
               network
             }).utxos.includes(utxo)
           ) {
-            scriptPubKeys.push({ expression, index, vout, txHex });
+            if (output)
+              throw new Error(
+                `output {${descriptor}, ${index}} is already represented by {${output.descriptor}, ${output.index}} .`
+              );
+            output = {
+              descriptor,
+              ...(isRanged ? { index: Number(indexStr) } : {})
+            };
           }
         });
       });
-      return scriptPubKeys;
-    }
-
-    /**
-     * Retrieves the current state of discovery information. This information
-     * includes details about transactions, descriptors, and network-specific
-     * details that are stored during the wallet discovery process.
-     *
-     * @returns The current state of the discovery information.
-     */
-    getDiscoveryInfo() {
-      return this.discoveryInfo;
+      return output;
     }
 
     /**

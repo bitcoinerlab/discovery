@@ -23,17 +23,16 @@ import {
   Explorer,
   ESPLORA_LOCAL_REGTEST_URL
 } from '@bitcoinerlab/explorer';
-const { Descriptor, BIP32 } = descriptors.DescriptorsFactory(secp256k1);
+const { Output, BIP32 } = descriptors.DescriptorsFactory(secp256k1);
 const regtestUtils = new RegtestUtils();
 import {
   DiscoveryFactory,
   DiscoveryInstance,
   Account,
   TxStatus,
-  DescriptorIndex,
   Utxo
 } from '../../dist';
-
+type DescriptorIndex = number | 'non-ranged';
 const ESPLORA_CATCHUP_TIME = 5000;
 
 import { fixtures } from '../fixtures/discovery';
@@ -45,25 +44,25 @@ const onAccountUsed = (account: Account) => {
   console.log(`TRACE - onAccountUsed(${account}`);
 };
 
-const parseScriptPubKeys = (scriptPubKeys: Record<DescriptorIndex, number>) => {
-  let scriptPubKeyArray: Array<{
-    index: string | number;
+const parseScriptPubKeys = (range: Record<DescriptorIndex, number>) => {
+  let rangeArray: Array<{
+    index: DescriptorIndex;
     balance: number;
     outOfGapLimit?: boolean;
-  }> = Object.entries(scriptPubKeys).map(([indexStr, balance]) => {
+  }> = Object.entries(range).map(([indexStr, balance]) => {
     const index = indexStr === 'non-ranged' ? indexStr : Number(indexStr);
     return { index, balance };
   });
 
-  // Sort the scriptPubKeyArray
-  scriptPubKeyArray = scriptPubKeyArray.sort((a, b) => {
+  // Sort the rangeArray
+  rangeArray = rangeArray.sort((a, b) => {
     if (a.index === 'non-ranged' || b.index === 'non-ranged') return 0;
     return (a.index as number) - (b.index as number);
   });
 
   let previousIndex = 0;
   let totalBalance = 0;
-  scriptPubKeyArray = scriptPubKeyArray.map(entry => {
+  rangeArray = rangeArray.map(entry => {
     let outOfGapLimit = false;
     if (
       typeof entry.index === 'number' &&
@@ -76,10 +75,10 @@ const parseScriptPubKeys = (scriptPubKeys: Record<DescriptorIndex, number>) => {
       typeof entry.index === 'number' ? entry.index : previousIndex;
     return { ...entry, outOfGapLimit };
   });
-  const totalUtxosCount = scriptPubKeyArray.filter(
+  const totalUtxosCount = rangeArray.filter(
     entry => !entry.outOfGapLimit
   ).length;
-  return { scriptPubKeyArray, totalBalance, totalUtxosCount };
+  return { rangeArray, totalBalance, totalUtxosCount };
 };
 
 describe('Discovery on regtest', () => {
@@ -88,11 +87,10 @@ describe('Discovery on regtest', () => {
     test(
       funding ? 'Faucet funds descriptors' : `Funds have been set`,
       async () => {
-        for (const { expression, scriptPubKeys } of fixtures.regtest
-          .descriptors) {
-          for (const [indexStr, value] of Object.entries(scriptPubKeys)) {
-            const address = new Descriptor({
-              expression,
+        for (const { descriptor, range } of fixtures.regtest.descriptors) {
+          for (const [indexStr, value] of Object.entries(range)) {
+            const address = new Output({
+              descriptor,
               network,
               ...(indexStr === 'non-ranged' ? {} : { index: Number(indexStr) })
             }).getAddress();
@@ -189,42 +187,39 @@ describe('Discovery on regtest', () => {
     }
 
     for (const discoverer of discoverers) {
-      for (const { expression, scriptPubKeys, error } of fixtures.regtest
-        .descriptors) {
+      for (const { descriptor, range, error } of fixtures.regtest.descriptors) {
         if (error) {
-          test(`Invalid: Discover ${expression} throws using ${discoverer.name} after ${totalMined} blocks`, async () => {
+          test(`Invalid: Discover ${descriptor} throws using ${discoverer.name} after ${totalMined} blocks`, async () => {
             await expect(
               discoverer.discovery!.discover({
                 gapLimit,
-                expressions: expression,
+                descriptor,
                 network
               })
             ).rejects.toThrow(error);
           });
         } else {
-          test(`Discover ${expression} using ${discoverer.name} after ${totalMined} blocks`, async () => {
+          test(`Discover ${descriptor} using ${discoverer.name} after ${totalMined} blocks`, async () => {
             await expect(
               discoverer.discovery!.discover({
                 gapLimit,
-                expressions: expression,
+                descriptor,
                 network
               })
             ).resolves.not.toThrow();
           });
 
           // Convert entries into array of objects
-          const { totalBalance, totalUtxosCount, scriptPubKeyArray } =
-            parseScriptPubKeys(
-              scriptPubKeys as Record<DescriptorIndex, number>
-            );
-          for (const { index, balance, outOfGapLimit } of scriptPubKeyArray) {
+          const { totalBalance, totalUtxosCount, rangeArray } =
+            parseScriptPubKeys(range as Record<DescriptorIndex, number>);
+          for (const { index, balance, outOfGapLimit } of rangeArray) {
             let balanceDefault: number;
             let utxosDefault: Array<Utxo>;
-            test(`getUtxosByScriptPubKey default status for ${expression}:${index} using ${discoverer.name} after ${totalMined} blocks`, () => {
+            test(`getUtxosAndBalance default status for ${descriptor}:${index} using ${discoverer.name} after ${totalMined} blocks`, () => {
               ({ balance: balanceDefault, utxos: utxosDefault } =
-                discoverer.discovery!.getUtxosByScriptPubKey({
-                  expression,
-                  index: index as DescriptorIndex,
+                discoverer.discovery!.getUtxosAndBalance({
+                  descriptor,
+                  ...(index === 'non-ranged' ? {} : { index: Number(index) }),
                   network
                 }));
               if (outOfGapLimit) {
@@ -235,11 +230,11 @@ describe('Discovery on regtest', () => {
                 expect(utxosDefault.length).toEqual(1);
               }
             });
-            test(`getUtxosByScriptPubKey ALL (and immutability wrt default) for ${expression}:${index} using ${discoverer.name} after ${totalMined} blocks`, () => {
+            test(`getUtxosAndBalance ALL (and immutability wrt default) for ${descriptor}:${index} using ${discoverer.name} after ${totalMined} blocks`, () => {
               const { balance: balanceAll, utxos: utxosAll } =
-                discoverer.discovery!.getUtxosByScriptPubKey({
-                  expression,
-                  index: index as DescriptorIndex,
+                discoverer.discovery!.getUtxosAndBalance({
+                  descriptor,
+                  ...(index === 'non-ranged' ? {} : { index: Number(index) }),
                   network,
                   txStatus: TxStatus.ALL
                 });
@@ -252,11 +247,11 @@ describe('Discovery on regtest', () => {
               }
             });
 
-            test(`getUtxosByScriptPubKey CONFIRMED for ${expression}:${index} using ${discoverer.name} after ${totalMined} blocks`, () => {
+            test(`getUtxosAndBalance CONFIRMED for ${descriptor}:${index} using ${discoverer.name} after ${totalMined} blocks`, () => {
               const { balance: balanceConfirmed, utxos: utxosConfirmed } =
-                discoverer.discovery!.getUtxosByScriptPubKey({
-                  expression,
-                  index: index as DescriptorIndex,
+                discoverer.discovery!.getUtxosAndBalance({
+                  descriptor,
+                  ...(index === 'non-ranged' ? {} : { index: Number(index) }),
                   network,
                   txStatus: TxStatus.CONFIRMED
                 });
@@ -269,11 +264,11 @@ describe('Discovery on regtest', () => {
                 expect(utxosConfirmed).not.toBe(utxosDefault); //These references should be different
               }
             });
-            test(`getUtxosByScriptPubKey IRREVERSIBLE for ${expression}:${index} using ${discoverer.name} after ${totalMined} blocks`, () => {
+            test(`getUtxosAndBalance IRREVERSIBLE for ${descriptor}:${index} using ${discoverer.name} after ${totalMined} blocks`, () => {
               const { balance: balanceIrreversible, utxos: utxosIrreversible } =
-                discoverer.discovery!.getUtxosByScriptPubKey({
-                  expression,
-                  index: index as DescriptorIndex,
+                discoverer.discovery!.getUtxosAndBalance({
+                  descriptor,
+                  ...(index === 'non-ranged' ? {} : { index: Number(index) }),
                   network,
                   txStatus: TxStatus.IRREVERSIBLE
                 });
@@ -293,19 +288,19 @@ describe('Discovery on regtest', () => {
           }
           let balanceDefault: number;
           let utxosDefault: Array<Utxo>;
-          test(`getUtxos default status for ${expression} using ${discoverer.name} after ${totalMined} blocks`, () => {
+          test(`getUtxosAndBalance default status for ${descriptor} using ${discoverer.name} after ${totalMined} blocks`, () => {
             ({ balance: balanceDefault, utxos: utxosDefault } =
-              discoverer.discovery!.getUtxos({
-                expressions: expression,
+              discoverer.discovery!.getUtxosAndBalance({
+                descriptor,
                 network
               }));
             expect(balanceDefault).toEqual(totalBalance);
             expect(utxosDefault.length).toEqual(totalUtxosCount);
           });
-          test(`getUtxos ALL for ${expression} using ${discoverer.name} after ${totalMined} blocks`, () => {
+          test(`getUtxosAndBalance ALL for ${descriptor} using ${discoverer.name} after ${totalMined} blocks`, () => {
             const { balance: balanceAll, utxos: utxosAll } =
-              discoverer.discovery!.getUtxos({
-                expressions: expression,
+              discoverer.discovery!.getUtxosAndBalance({
+                descriptor,
                 network,
                 txStatus: TxStatus.ALL
               });
@@ -313,10 +308,10 @@ describe('Discovery on regtest', () => {
             expect(balanceAll).toEqual(balanceDefault);
             expect(utxosAll.length).toEqual(totalUtxosCount);
           });
-          test(`getUtxos CONFIRMED for ${expression} using ${discoverer.name} after ${totalMined} blocks`, () => {
+          test(`getUtxosAndBalance CONFIRMED for ${descriptor} using ${discoverer.name} after ${totalMined} blocks`, () => {
             const { balance: balanceConfirmed, utxos: utxosConfirmed } =
-              discoverer.discovery!.getUtxos({
-                expressions: expression,
+              discoverer.discovery!.getUtxosAndBalance({
+                descriptor,
                 network,
                 txStatus: TxStatus.CONFIRMED
               });
@@ -325,10 +320,10 @@ describe('Discovery on regtest', () => {
               totalMined > 0 ? totalUtxosCount : 0
             );
           });
-          test(`getUtxos IRREVERSIBLE for ${expression} using ${discoverer.name} after ${totalMined} blocks`, () => {
+          test(`getUtxosAndBalance IRREVERSIBLE for ${descriptor} using ${discoverer.name} after ${totalMined} blocks`, () => {
             const { balance: balanceIrreversible, utxos: utxosIrreversible } =
-              discoverer.discovery!.getUtxos({
-                expressions: expression,
+              discoverer.discovery!.getUtxosAndBalance({
+                descriptor,
                 network,
                 txStatus: TxStatus.IRREVERSIBLE
               });
@@ -366,9 +361,9 @@ describe('Discovery on regtest', () => {
     }
   }
   for (const discoverer of discoverers) {
-    test(`getUtxos from non discovered expression using ${discoverer.name}`, async () => {
-      const { balance, utxos } = discoverer.discovery!.getUtxos({
-        expressions: fixtures.regtest.nonDiscoveredExpression,
+    test(`getUtxosAndBalance from non discovered expression using ${discoverer.name}`, async () => {
+      const { balance, utxos } = discoverer.discovery!.getUtxosAndBalance({
+        descriptor: fixtures.regtest.nonDiscoveredDescriptor,
         network
       });
       expect(balance).toEqual(0);

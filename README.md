@@ -115,7 +115,7 @@ To get started, follow the steps below:
      const descriptorData = discovery.getDescriptor({ utxo, network });
      // Returns: { descriptor, index? }, with 'index' provided for ranged descriptors.
      ```
-     This is particularly useful when preparing transactions and you need to instantiate a `new Output({ descriptor })` with the [@bitcoinerlab/descriptors](https://bitcoinerlab.com/modules/descriptors) library, using the descriptor tied to the UTXO that will be utilized.
+     This is particularly useful for transaction preparation when you need to instantiate a `new Output({ descriptor })` using the descriptor associated with the UTXO, as facilitated by the [@bitcoinerlab/descriptors](https://bitcoinerlab.com/modules/descriptors) library.
    
    - **Accessing Transaction History**:
      Access all transactions associated with a specific descriptor expression (or an array of them):

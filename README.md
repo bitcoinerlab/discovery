@@ -76,15 +76,29 @@ To get started, follow the steps below:
    
    Once you've instantiated the `Discovery` class, you can leverage its methods to interact with blockchain data.
 
-   For instance, if you want to fetch all the addresses from a ranged descriptor expression, execute:
+   Descriptor expressions consists of a simple language which can be used to describe collections of output scripts. For more detailed information on descriptor expressions, you can refer to the [BitcoinerLab descriptors module](https://bitcoinerlab.com/modules/descriptors).
+
+   Then, if you want to fetch all the addresses from a ranged descriptor expression, execute:
    
    ```typescript
    await discovery.discover({ descriptor, network, gapLimit: 3 });
-   const { utxos, balance } = discovery.getUtxos({ descriptor, network });
    ```
-   
-In this snippet, `descriptor` refers to a single descriptor expression in string format. If you have multiple descriptors, use `descriptors` with an array of strings. Descriptor expressions conform to the format widely recognized by the Bitcoin community and implemented in Bitcoin Core. For detailed information on descriptor expressions, you can consult the resources provided by [BitcoinerLab](https://bitcoinerlab.com/modules/descriptors). When the descriptor is ranged, it triggers the collection of all corresponding outputs. Following the discovery process, `getUtxos` enables you to retrieve the UTXOs and balance for the given descriptor(s).
 
+   In the code snippet above, `descriptor` refers to a single descriptor expression in string format, which may be ranged or fixed. With a ranged descriptor, you can optionally specify an `index` to target a specific output within the range. Note that the `index` parameter is not applicable to non-ranged descriptors. Without a specified `index`, a ranged descriptor initiates the retrieval of all corresponding outputs. For actions involving multiple descriptors, use `descriptors` instead, with an array of strings.
+
+   After the discovery process, you can use the following methods to retrieve information for the given descriptor(s):
+
+   - **Retrieving UTXOs**:
+     Use `getUtxos` to retrieve all unspent transaction outputs (UTXOs):
+     ```typescript
+     const { utxos } = discovery.getUtxos({ descriptor, network });
+     ```
+   
+   - **Retrieving Balance**:
+     Use `getBalance` to obtain the total balance:
+     ```typescript
+     const { balance } = discovery.getBalance({ descriptor, network });
+     ```
    Other methods include:
 
    - **Getting the Next Index**: 
@@ -94,9 +108,9 @@ In this snippet, `descriptor` refers to a single descriptor expression in string
      ```
 
    - **Fetching Descriptors by UTXO**:
-     Once discovery is complete, this method allows you to find the `descriptor` that corresponds to a particular UTXO.
+     To identify the descriptor corresponding to a specific UTXO:
      ```typescript
-     discovery.getUtxoDescriptor({ utxo, network });
+     discovery.getDescriptor({ utxo, network });
      // Returns: { descriptor, index? }, with 'index' provided for ranged descriptors.
      ```
      This is particularly useful for transaction preparation when you need to specify which UTXOs to spend, especially in conjunction with the @bitcoinerlab/descriptors package.

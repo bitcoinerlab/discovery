@@ -885,7 +885,7 @@ export function DiscoveryFactory(
     /**
      * Given an unspent tx output, this function retrieves its descriptor.
      */
-    getUtxoDescriptor({
+    getDescriptor({
       network,
       utxo
     }: {

@@ -883,10 +883,7 @@ export function DiscoveryFactory(
     }
 
     /**
-     * Given a UTXO, this function retrieves the descriptor associated
-     * with the UTXO. In this function, the output is represented by its
-     * descriptor expression (and its corresponding index for
-     * ranged-descriptors).
+     * Given an unspent tx output, this function retrieves its descriptor.
      */
     getUtxoDescriptor({
       network,

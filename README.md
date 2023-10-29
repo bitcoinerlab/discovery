@@ -72,76 +72,77 @@ To get started, follow the steps below:
 
    **Note**: The `connect` method must be run before starting any data queries to the blockchain, and the `close` method should be run after you have completed all necessary queries and no longer need to query the blockchain.
 
+
 4. **Using the Discovery Methods**
+
+   Once you've instantiated the `Discovery` class, you have access to a variety of methods to fetch and derive blockchain data from *Bitcoin Output Descriptors*.
    
-   Once you've instantiated the `Discovery` class, you can leverage its methods to interact with blockchain data.
-
-   Descriptor expressions consists of a simple language which can be used to describe collections of output scripts. For more detailed information on descriptor expressions, you can refer to the [BitcoinerLab descriptors module](https://bitcoinerlab.com/modules/descriptors).
-
-   Then, if you want to fetch all the addresses from a ranged descriptor expression, execute:
+   Descriptor expressions are a simple language used to describe collections of Bitcoin output scripts. They enable the `Discovery` class to fetch detailed blockchain information about specific outputs. For more comprehensive insights into descriptor expressions, refer to the [BitcoinerLab descriptors module](https://bitcoinerlab.com/modules/descriptors).
+   
+   To initiate the data retrieval process for all addresses associated with a ranged descriptor expression, execute:
    
    ```typescript
    await discovery.discover({ descriptor, network, gapLimit: 3 });
    ```
+   
+   In the code snippet above, `descriptor` refers to a single descriptor expression in string format, which can be either ranged or fixed. A ranged descriptor allows for the optional specification of an `index` to isolate a specific output within the range. It's important to note that the `index` is only applicable to ranged descriptors. When an `index` is not specified, the discovery process fetches data for all outputs encompassed by the ranged descriptor. For operations that involve multiple descriptors, `descriptors` should be used with an array of strings.
+   
+   Following the initial data retrieval via the `discover` method, subsequent methods are available to process and analyze the fetched data:
 
-   In the code snippet above, `descriptor` refers to a single descriptor expression in string format, which may be ranged or fixed. With a ranged descriptor, you can optionally specify an `index` to target a specific output within the range. Note that the `index` parameter is not applicable to non-ranged descriptors. Without a specified `index`, a ranged descriptor initiates the retrieval of all corresponding outputs. For actions involving multiple descriptors, use `descriptors` instead, with an array of strings.
-
-   After the discovery process, you can use the following methods to retrieve information for the given descriptor(s):
-
-   - **Retrieving UTXOs**:
-     Use `getUtxos` to retrieve all unspent transaction outputs (UTXOs):
+   - **Deriving UTXOs**:
+     Use `getUtxos` to derive all unspent transaction outputs (UTXOs) from the fetched data:
      ```typescript
      const { utxos } = discovery.getUtxos({ descriptor, network });
      ```
    
-   - **Retrieving Balance**:
-     Use `getBalance` to obtain the total balance:
+   - **Calculating Balance**:
+     Use `getBalance` to calculate the total balance from the fetched data:
      ```typescript
      const { balance } = discovery.getBalance({ descriptor, network });
      ```
-   Other methods include:
-
-   - **Getting the Next Index**: 
-     If you're dealing with ranged descriptor expressions and want to determine the next available (unused) index, use:
+   
+   Other methods to derive or calculate data include:
+   
+   - **Determining the Next Index**: 
+     For ranged descriptor expressions, determine the next unused index:
      ```typescript
      const index = discovery.getNextIndex({ descriptor, network });
      ```
-
-   - **Fetching Descriptors by UTXO**:
-     To identify the descriptor corresponding to a specific UTXO:
+   
+   - **Identifying Descriptors by UTXO**:
+     Find the descriptor that corresponds to a specific UTXO:
      ```typescript
-     discovery.getDescriptor({ utxo, network });
+     const descriptorData = discovery.getDescriptor({ utxo, network });
      // Returns: { descriptor, index? }, with 'index' provided for ranged descriptors.
      ```
-     This is particularly useful for transaction preparation when you need to specify which UTXOs to spend, especially in conjunction with the @bitcoinerlab/descriptors package.
-
-
-   - **Reviewing Transaction History**:
-     To inspect all transactions associated with a specific descriptor expression (or an array of them), use:
+     This is particularly useful when preparing transactions and you need to instantiate a `new Output({ descriptor })` with the [@bitcoinerlab/descriptors](https://bitcoinerlab.com/modules/descriptors) library, using the descriptor tied to the UTXO that will be utilized.
+   
+   - **Accessing Transaction History**:
+     Access all transactions associated with a specific descriptor expression (or an array of them):
      ```typescript
      const history = discovery.getHistory({ descriptors, network });
      ```
-
-   - **Discovering Standard Accounts**:
-     The `discoverStandardAccounts` method is a helper designed to facilitate the common task of discovering standard accounts (pkh, sh(wpkh), wpkh) associated with a master node. It automates and optimizes the discovery process, saving time for developers who frequently need to perform this action.
    
-     Use this method to efficiently discover wallet accounts without writing repetitive code:
+   - **Discovering Standard Accounts**:
+     The `discoverStandardAccounts` method is a helper that automates the common task of discovering standard accounts (pkh, sh(wpkh), wpkh) associated with a master node, using data already fetched from the network. This method saves developers time and eliminates repetitive coding tasks.
+   
+     Efficiently discover wallet accounts with:
      ```typescript
      await discovery.discoverStandardAccounts({
        masterNode,
        gapLimit: 20, // The default gap limit
        network,
        onAccountUsed: (account) => {
-         // Optional: Handle updates in your app when an account with transactions is found
+         // Optional: Trigger app updates when an account with transactions is found.
        },
        onAccountChecking: (account) => {
-         // Optional: Handle app-specific logic when starting to check an account
+         // Optional: Implement app-specific logic when the check for an account begins.
        }
      });
      ```
-     The `onAccountUsed` callback is optional and can be implemented to update your app when an account with past transactions is detected. The `onAccountChecking` callback is also optional and useful for initiating any UI updates or specific app logic as the account checking begins.
+     Implement the `onAccountUsed` and `onAccountChecking` callbacks as needed for your app's functionality, such as UI updates or logging.
 
-For a comprehensive rundown of all methods and their detailed usage, please consult [the API documentation](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html).
+   For a comprehensive rundown of all methods and their detailed usage, please consult [the API documentation](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html).
 
 ## API Documentation
 

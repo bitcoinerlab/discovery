@@ -196,11 +196,11 @@ export function deriveDataFactory({
     networkId: NetworkId,
     txMap: Record<TxId, TxData>,
     descriptorMap: Record<Descriptor, DescriptorData>,
-    expression: Descriptor,
+    descriptor: Descriptor,
     index: DescriptorIndex,
     txStatus: TxStatus
   ) =>
-    deriveUtxosAndBalanceByOutputFactory(networkId)(txStatus)(expression)(
+    deriveUtxosAndBalanceByOutputFactory(networkId)(txStatus)(descriptor)(
       index
     )(txMap, descriptorMap);
 
@@ -215,7 +215,7 @@ export function deriveDataFactory({
     });
 
   const deriveTxDataArrayFactory = memoizee(
-    (expression: Descriptor) =>
+    (descriptor: Descriptor) =>
       memoizee(
         (index: DescriptorIndex) => {
           return memoizeOneWithShallowArraysCheck(
@@ -223,9 +223,7 @@ export function deriveDataFactory({
               txMap: Record<TxId, TxData>,
               descriptorMap: Record<Descriptor, DescriptorData>
             ) => {
-              const range =
-                descriptorMap[expression]?.range ||
-                ({} as Record<DescriptorIndex, OutputData>);
+              const range = deriveUsedRange(descriptorMap[descriptor]);
               const txIds = range[index]?.txIds || [];
               const txInfoArray = coreDeriveTxDataArray(txIds, txMap);
               return txInfoArray;
@@ -240,14 +238,14 @@ export function deriveDataFactory({
   const deriveTxDataArray = (
     txMap: Record<TxId, TxData>,
     descriptorMap: Record<Descriptor, DescriptorData>,
-    expression: Descriptor,
+    descriptor: Descriptor,
     index: DescriptorIndex
-  ) => deriveTxDataArrayFactory(expression)(index)(txMap, descriptorMap);
+  ) => deriveTxDataArrayFactory(descriptor)(index)(txMap, descriptorMap);
 
   const deriveHistoryByOutputFactory = memoizee(
     (txStatus: TxStatus) =>
       memoizee(
-        (expression: Descriptor) =>
+        (descriptor: Descriptor) =>
           memoizee(
             (index: DescriptorIndex) => {
               return memoizeOneWithShallowArraysCheck(
@@ -258,7 +256,7 @@ export function deriveDataFactory({
                   const txInfoArray = deriveTxDataArray(
                     txMap,
                     descriptorMap,
-                    expression,
+                    descriptor,
                     index
                   );
                   return txInfoArray.filter(
@@ -296,17 +294,15 @@ export function deriveDataFactory({
   const coreDeriveHistory = (
     descriptorMap: Record<Descriptor, DescriptorData>,
     txMap: Record<TxId, TxData>,
-    expressions: Array<Descriptor> | Descriptor,
+    descriptorOrDescriptors: Array<Descriptor> | Descriptor,
     txStatus: TxStatus
   ): Array<TxData> => {
     const history: Array<TxData> = [];
-    const expressionArray = Array.isArray(expressions)
-      ? expressions
-      : [expressions];
-    for (const expression of expressionArray) {
-      const range =
-        descriptorMap[expression]?.range ||
-        ({} as Record<DescriptorIndex, OutputData>);
+    const descriptorArray = Array.isArray(descriptorOrDescriptors)
+      ? descriptorOrDescriptors
+      : [descriptorOrDescriptors];
+    for (const descriptor of descriptorArray) {
+      const range = deriveUsedRange(descriptorMap[descriptor]);
       Object.keys(range)
         .sort() //Sort it to be deterministic
         .forEach(indexStr => {
@@ -315,7 +311,7 @@ export function deriveDataFactory({
             ...deriveHistoryByOutput(
               txMap,
               descriptorMap,
-              expression,
+              descriptor,
               index,
               txStatus
             )
@@ -368,13 +364,11 @@ export function deriveDataFactory({
     txStatus: TxStatus
   ): Array<Utxo> => {
     const utxos: Utxo[] = [];
-    const expressionArray = Array.isArray(descriptorOrDescriptors)
+    const descriptorArray = Array.isArray(descriptorOrDescriptors)
       ? descriptorOrDescriptors
       : [descriptorOrDescriptors];
-    for (const expression of expressionArray) {
-      const range =
-        descriptorMap[expression]?.range ||
-        ({} as Record<DescriptorIndex, OutputData>);
+    for (const descriptor of descriptorArray) {
+      const range = deriveUsedRange(descriptorMap[descriptor]);
       Object.keys(range)
         .sort() //Sort it to be deterministic
         .forEach(indexStr => {
@@ -384,7 +378,7 @@ export function deriveDataFactory({
               networkId,
               txMap,
               descriptorMap,
-              expression,
+              descriptor,
               index,
               txStatus
             ).utxos
@@ -486,29 +480,42 @@ export function deriveDataFactory({
     return balance;
   };
 
-  function outputHasRecords(
-    range: Record<DescriptorIndex, OutputData> | undefined
-  ) {
-    if (range === undefined) return false;
-    for (const prop in range)
-      if (Object.prototype.hasOwnProperty.call(range, prop)) return true;
-    return false;
+  /**
+   * Filters the provided descriptor object's range with
+   * records that have non-empty transaction ID arrays.
+   *
+   * @returns An object containing only the records from the input range with
+   * non-empty txIds arrays.
+   */
+  function deriveUsedRange(descriptorData?: DescriptorData) {
+    const usedRange = {} as Record<DescriptorIndex, OutputData>;
+    if (!descriptorData) return usedRange;
+
+    for (const [indexStr, outputData] of Object.entries(descriptorData.range)) {
+      const index = indexStr === 'non-ranged' ? indexStr : Number(indexStr);
+      if (outputData.txIds.length > 0) usedRange[index] = outputData;
+    }
+    return usedRange;
   }
 
-  const coreDeriveDescriptors = (
+  function isDescriptorUsed(descriptorData?: DescriptorData) {
+    return Object.keys(deriveUsedRange(descriptorData)).length !== 0;
+  }
+
+  const coreDeriveUsedDescriptors = (
     discoveryData: DiscoveryData,
     networkId: NetworkId
   ) => {
     const descriptorMap = discoveryData[networkId].descriptorMap;
     return Object.keys(descriptorMap)
-      .filter(descriptor => outputHasRecords(descriptorMap[descriptor]?.range))
+      .filter(descriptor => isDescriptorUsed(descriptorMap[descriptor]))
       .sort();
   };
 
-  const deriveDescriptorsFactory = memoizee(
+  const deriveUsedDescriptorsFactory = memoizee(
     (networkId: NetworkId) => {
       return memoizeOneWithShallowArraysCheck((discoveryData: DiscoveryData) =>
-        coreDeriveDescriptors(discoveryData, networkId)
+        coreDeriveUsedDescriptors(discoveryData, networkId)
       );
     },
     { primitive: true } //unbounded cache (no max setting) since Search Space is small
@@ -523,12 +530,12 @@ export function deriveDataFactory({
    *
    * @returns Descriptor expressions.
    */
-  const deriveDescriptors = (
+  const deriveUsedDescriptors = (
     /** The network identifier. */
     discoveryData: DiscoveryData,
     /** Descriptor expressions. */
     networkId: NetworkId
-  ) => deriveDescriptorsFactory(networkId)(discoveryData);
+  ) => deriveUsedDescriptorsFactory(networkId)(discoveryData);
 
   /**
    * Derives the accounts from the discoveryData.
@@ -539,11 +546,11 @@ export function deriveDataFactory({
    * @param {NetworkId} networkId
    * @returns {Array<Account>}- Returns an array of accounts.
    */
-  const coreDeriveAccounts = (
+  const coreDeriveUsedAccounts = (
     discoveryData: DiscoveryData,
     networkId: NetworkId
   ): Array<Account> => {
-    const expressions = coreDeriveDescriptors(discoveryData, networkId);
+    const expressions = coreDeriveUsedDescriptors(discoveryData, networkId);
     const accounts: Array<Account> = [];
 
     const network = getNetwork(networkId);
@@ -568,17 +575,19 @@ export function deriveDataFactory({
     return accounts.sort(); //So it's deterministic
   };
 
-  const deriveAccountsFactory = memoizee(
+  const deriveUsedAccountsFactory = memoizee(
     (networkId: NetworkId) => {
       return memoizeOneWithShallowArraysCheck((discoveryData: DiscoveryData) =>
-        coreDeriveAccounts(discoveryData, networkId)
+        coreDeriveUsedAccounts(discoveryData, networkId)
       );
     },
     { primitive: true } //unbounded cache (no max setting) since Search Space is small
   );
 
-  const deriveAccounts = (discoveryData: DiscoveryData, networkId: NetworkId) =>
-    deriveAccountsFactory(networkId)(discoveryData);
+  const deriveUsedAccounts = (
+    discoveryData: DiscoveryData,
+    networkId: NetworkId
+  ) => deriveUsedAccountsFactory(networkId)(discoveryData);
 
   const deriveAccountDescriptors = memoizee(
     (account: Account): [Descriptor, Descriptor] => [
@@ -592,8 +601,8 @@ export function deriveDataFactory({
     deriveScriptPubKey,
     deriveUtxosAndBalanceByOutput,
     deriveUtxosAndBalance,
-    deriveDescriptors,
-    deriveAccounts,
+    deriveUsedDescriptors,
+    deriveUsedAccounts,
     deriveAccountDescriptors,
     deriveHistoryByOutput,
     deriveHistory,

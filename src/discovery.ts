@@ -1,3 +1,18 @@
+// TODO
+//
+//
+//fix getTxHex
+//fix getTxHex
+//fix getTxHex
+//fix getTxHex
+//fix getTxHex
+//fix getTxHex
+//fix getTxHex
+//fix getTxHex
+//fix getTxHex
+//fix getTxHex
+//
+//
 // Copyright (c) 2023 Jose-Luis Landabaso - https://bitcoinerlab.com
 // Distributed under the MIT software license
 
@@ -143,7 +158,7 @@ export function DiscoveryFactory(
       scriptPubKey: Buffer;
     }) {
       const descriptorMap = this.#discoveryData[networkId].descriptorMap;
-      const descriptors = this.#derivers.deriveDescriptors(
+      const descriptors = this.#derivers.deriveUsedDescriptors(
         this.#discoveryData,
         networkId
       );
@@ -182,12 +197,12 @@ export function DiscoveryFactory(
      * transactions and output.
      *
      * This method does not retrieve the txHex associated with the Output.
-     * An additional #discoverTxs must be performed.
+     * An additional #fetchTxs must be performed.
      *
      * @param options
      * @returns A promise that resolves to a boolean indicating whether any transactions were found for the provided scriptPubKey.
      */
-    async #discoverOutput({
+    async #fetchOutput({
       descriptor,
       index,
       network
@@ -226,6 +241,15 @@ export function DiscoveryFactory(
         blockHeight: number;
         irreversible: boolean;
       };
+      this.#discoveryData = produce(this.#discoveryData, discoveryData => {
+        const range = discoveryData[networkId].descriptorMap[descriptor]?.range;
+        if (!range) throw new Error(`unset range ${networkId}:${descriptor}`);
+        const outputData = range[internalIndex];
+        if (!outputData) {
+          this.#ensureScriptPubKeyUniqueness({ networkId, scriptPubKey });
+          range[internalIndex] = { txIds: [], fetching: true, timeFetched: 0 };
+        } else outputData.fetching = true;
+      });
 
       const txHistoryArray: Array<TxHistory> = await explorer.fetchTxHistory({
         scriptHash
@@ -246,27 +270,14 @@ export function DiscoveryFactory(
         });
         //Update descriptorMap
         const range = discoveryData[networkId].descriptorMap[descriptor]?.range;
-        if (!range)
-          throw new Error(
-            `range does not exist for ${networkId} and ${descriptor}`
-          );
+        if (!range) throw new Error(`unset range ${networkId}:${descriptor}`);
         const outputData = range[internalIndex];
+        if (!outputData) throw new Error(`outputData unset with fetching:true`);
         const txIds = txHistoryArray.map(txHistory => txHistory.txId);
-        if (txIds.length) {
-          if (!outputData) {
-            this.#ensureScriptPubKeyUniqueness({ networkId, scriptPubKey });
-            range[internalIndex] = { txIds, timeFetched: now() };
-          } else {
-            if (!shallowEqualArrays(txIds, outputData.txIds)) {
-              outputData.txIds = txIds;
-            }
-            outputData.timeFetched = now();
-          }
-        } else {
-          if (outputData) {
-            delete range[internalIndex];
-          }
-        }
+        outputData.fetching = false;
+        outputData.timeFetched = now();
+        if (!shallowEqualArrays(txIds, outputData.txIds))
+          outputData.txIds = txIds;
       });
       return !!txHistoryArray.length;
     }
@@ -278,7 +289,7 @@ export function DiscoveryFactory(
      * @param options
      * @returns Resolves when all the transactions for the provided network have been fetched and stored in discoveryData.
      */
-    async #discoverTxs({
+    async #fetchTxs({
       network
     }: {
       /**
@@ -324,7 +335,7 @@ export function DiscoveryFactory(
      * @returns Resolves when the fetch operation completes. If used expressions
      * are found, waits for the discovery of associated transactions.
      */
-    async discover({
+    async fetch({
       descriptor,
       index,
       descriptors,
@@ -428,7 +439,7 @@ export function DiscoveryFactory(
         index = index || 0; //If it was a passed argument use it; othewise start at zero
         const isRanged = descriptor.indexOf('*') !== -1;
         while (isRanged ? gap < gapLimit : index < 1 /*once if unranged*/) {
-          const used = await this.#discoverOutput({
+          const used = await this.#fetchOutput({
             descriptor,
             ...(isRanged ? { index } : {}),
             network
@@ -461,9 +472,122 @@ export function DiscoveryFactory(
       }
 
       const promises = [];
-      if (usedOutput) promises.push(this.#discoverTxs({ network }));
+      if (usedOutput) promises.push(this.#fetchTxs({ network }));
       if (nextPromise) promises.push(nextPromise);
       await Promise.all(promises);
+    }
+
+    /**
+     * Retrieves the fetching status and the timestamp of the last fetch for a descriptor.
+     *
+     * Use this function to check if the data for a specific descriptor, or an index within
+     * a ranged descriptor, is currently being fetched or has been fetched.
+     *
+     * This function also helps to avoid errors when attempting to derive data from descriptors with incomplete data,
+     * ensuring that subsequent calls to data derivation methods such as `getUtxos` or
+     * `getBalance` only occur once the necessary data has been successfully retrieved (and does not return `undefined`).
+     *
+     * @returns An object with the fetching status (`fetching`) and the last
+     *          fetch time (`timeFetched`), or undefined if never fetched.
+     */
+    whenFetched({
+      descriptor,
+      index,
+      network
+    }: {
+      /**
+       * Descriptor expression representing one or potentially multiple outputs
+       * if ranged.
+       */
+      descriptor: Descriptor;
+
+      /**
+       * An optional index associated with a ranged `descriptor`.
+       */
+      index?: number;
+
+      /**
+       * The network to which the outputs belong.
+       */
+      network: Network;
+    }): { fetching: boolean; timeFetched: number } | undefined {
+      if (typeof index !== 'undefined' && descriptor.indexOf('*') === -1)
+        throw new Error(`Pass index (optionally) only for ranged descriptors`);
+      const networkId = getNetworkId(network);
+      const descriptorData =
+        this.#discoveryData[networkId].descriptorMap[descriptor];
+      if (!descriptorData) return undefined;
+      if (typeof index !== 'number') {
+        return {
+          fetching: descriptorData.fetching,
+          timeFetched: descriptorData.timeFetched
+        };
+      } else {
+        const internalIndex = typeof index === 'number' ? index : 'non-ranged';
+        const outputData = descriptorData.range[internalIndex];
+        if (!outputData) return undefined;
+        else
+          return {
+            fetching: outputData.fetching,
+            timeFetched: outputData.timeFetched
+          };
+      }
+    }
+
+    /**
+     * Makes sure that data was retrieved before trying to derive from it
+     */
+    #ensureFetched({
+      descriptor,
+      index,
+      descriptors,
+      network
+    }: {
+      /**
+       * Descriptor expression representing one or potentially multiple outputs
+       * if ranged.
+       * Use either `descriptor` or `descriptors`, but not both simultaneously.
+       */
+      descriptor?: Descriptor;
+
+      /**
+       * An optional index associated with a ranged `descriptor`. Not applicable
+       * when using the `descriptors` array, even if its elements are ranged.
+       */
+      index?: number;
+
+      /**
+       * Array of descriptor expressions. Use either `descriptors` or `descriptor`,
+       * but not both simultaneously.
+       */
+      descriptors?: Array<Descriptor>;
+
+      /**
+       * The network to which the outputs belong.
+       */
+      network: Network;
+    }) {
+      if ((descriptor && descriptors) || !(descriptor || descriptors))
+        throw new Error(`Pass descriptor or descriptors`);
+      if (
+        typeof index !== 'undefined' &&
+        (descriptors || !descriptor?.includes('*'))
+      )
+        throw new Error(`Don't pass index`);
+      if (descriptors)
+        descriptors.forEach(descriptor => {
+          if (!this.whenFetched({ descriptor, network }))
+            throw new Error(
+              `Cannot derive data from ${descriptor} since it has not been previously fetched`
+            );
+        });
+      else if (
+        descriptor &&
+        !this.whenFetched({ descriptor, ...(index ? { index } : {}), network })
+      )
+        throw new Error(
+          `Cannot derive data from ${descriptor}/${index} since it has not been previously fetched`
+        );
     }
 
     /**
@@ -475,7 +599,7 @@ export function DiscoveryFactory(
      * @returns Resolves when all the standrd accounts from the master node have
      * been discovered.
      */
-    async discoverStandardAccounts({
+    async fetchStandardAccounts({
       masterNode,
       gapLimit = 20,
       network,
@@ -536,7 +660,7 @@ export function DiscoveryFactory(
           const onUsed = onAccountUsed && (() => onAccountUsed(account));
           const onChecking =
             onAccountChecking && (() => onAccountChecking(account));
-          await this.discover({
+          await this.fetch({
             descriptors,
             gapLimit,
             network,
@@ -564,7 +688,7 @@ export function DiscoveryFactory(
      * and the provided network.
      *
      */
-    getDescriptors({
+    getUsedDescriptors({
       network
     }: {
       /**
@@ -573,7 +697,10 @@ export function DiscoveryFactory(
       network: Network;
     }): Array<Descriptor> {
       const networkId = getNetworkId(network);
-      return this.#derivers.deriveDescriptors(this.#discoveryData, networkId);
+      return this.#derivers.deriveUsedDescriptors(
+        this.#discoveryData,
+        networkId
+      );
     }
 
     /**
@@ -590,7 +717,7 @@ export function DiscoveryFactory(
      * @returns An array of accounts, each represented
      * as its external descriptor expression.
      */
-    getAccounts({
+    getUsedAccounts({
       network
     }: {
       /**
@@ -599,7 +726,7 @@ export function DiscoveryFactory(
       network: Network;
     }): Array<Account> {
       const networkId = getNetworkId(network);
-      return this.#derivers.deriveAccounts(this.#discoveryData, networkId);
+      return this.#derivers.deriveUsedAccounts(this.#discoveryData, networkId);
     }
 
     /**
@@ -652,6 +779,12 @@ export function DiscoveryFactory(
       network,
       txStatus = TxStatus.ALL
     }: OutputCriteria): { utxos: Array<Utxo>; balance: number } {
+      this.#ensureFetched({
+        ...(descriptor ? { descriptor } : {}),
+        ...(descriptors ? { descriptors } : {}),
+        ...(index ? { index } : {}),
+        network
+      });
       if ((descriptor && descriptors) || !(descriptor || descriptors))
         throw new Error(`Pass descriptor or descriptors`);
       if (
@@ -741,6 +874,7 @@ export function DiscoveryFactory(
     }) {
       if (!descriptor || descriptor.indexOf('*') === -1)
         throw new Error(`Error: invalid ranged descriptor: ${descriptor}`);
+      this.#ensureFetched({ descriptor, network });
 
       const networkId = getNetworkId(network);
       const descriptorMap = this.#discoveryData[networkId].descriptorMap;
@@ -794,6 +928,12 @@ export function DiscoveryFactory(
         (descriptor || descriptors)!,
         network
       );
+      this.#ensureFetched({
+        ...(descriptor ? { descriptor } : {}),
+        ...(descriptors ? { descriptors } : {}),
+        ...(index ? { index } : {}),
+        network
+      });
       const networkId = getNetworkId(network);
       const descriptorMap = this.#discoveryData[networkId].descriptorMap;
       const txMap = this.#discoveryData[networkId].txMap;
@@ -830,20 +970,30 @@ export function DiscoveryFactory(
      */
     getTxHex({
       network,
-      tx
+      txId,
+      utxo
     }: {
       /**
        * The network where the transaction took place.
        */
       network: Network;
       /**
-       * The transaction ID or a UTXO.
+       * The transaction ID.
        */
-      tx: TxId | Utxo;
+      txId?: TxId;
+      /**
+       * The UTXO.
+       */
+      utxo?: Utxo;
     }): TxHex {
+      if ((txId && utxo) || (!txId && !utxo)) {
+        throw new Error(
+          `Error: Please provide either a txId or a utxo, not both or neither.`
+        );
+      }
       const networkId = getNetworkId(network);
-      const txId = tx.indexOf(':') === -1 ? tx : tx.split(':')[0];
-      if (!txId) throw new Error(`Error: invalid tx`);
+      txId = utxo ? utxo.split(':')[0] : txId;
+      if (!txId) throw new Error(`Error: invalid input`);
       const txHex = this.#discoveryData[networkId].txMap[txId]?.txHex;
       if (!txHex) throw new Error(`Error: txHex not found`);
       return txHex;
@@ -867,18 +1017,27 @@ export function DiscoveryFactory(
      */
     getTransaction({
       network,
-      tx
+      txId,
+      utxo
     }: {
       /**
        * The network where the transaction took place.
        */
       network: Network;
       /**
-       * The transaction ID or a UTXO.
+       * The transaction ID.
        */
-      tx: TxId | Utxo;
+      txId?: TxId;
+      /**
+       * The UTXO.
+       */
+      utxo?: Utxo;
     }): Transaction {
-      const txHex = this.getTxHex({ network, tx });
+      const txHex = this.getTxHex({
+        network,
+        ...(utxo ? { utxo } : {}),
+        ...(txId ? { txId } : {})
+      });
       return this.#derivers.transactionFromHex(txHex);
     }
 
@@ -917,7 +1076,7 @@ export function DiscoveryFactory(
       if (!txHex) throw new Error(`Error: txHex not found for ${utxo}`);
 
       const descriptorMap = this.#discoveryData[networkId].descriptorMap;
-      const descriptors = this.#derivers.deriveDescriptors(
+      const descriptors = this.#derivers.deriveUsedDescriptors(
         this.#discoveryData,
         networkId
       );

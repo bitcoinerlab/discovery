@@ -8,10 +8,11 @@
 //       "pkh([73c5da0a/44'/0'/0']xpub6B.../0/*)": DescriptorData {
 //         fetching: true,
 //         timeFetched: UNIXTIME_IN_SECONDS,
-//         range: Record<OutputIndex, OutputData>{ //OutputIndex = number|'non-ranged'
+//         range: Record<DescriptorIndex, OutputData>{ //DescriptorIndex = number|'non-ranged'
 //           //this is the index in ranged-descriptors. Use "non-ranged" if non-ranged
 //           12: OutputData {
 //             txIds: /*Array<TxId>*/['8923a3830d9c2eac01043ec30e75b0b2b7264697660f8f...'],
+//             fetching: true,
 //             timeFetched: UNIXTIME_IN_SECONDS
 //           }
 //         }
@@ -90,6 +91,11 @@ export enum TxStatus {
 export type TxId = string;
 
 /**
+ * Type definition for Unspent Transaction Output. Format: `${txId}:${vout}`.
+ */
+export type Utxo = string; //`${txId}:${vout}`
+
+/**
  * Type definition for Transaction Information.
  */
 export type TxData = {
@@ -115,6 +121,8 @@ export type OutputData = {
    * Array of transaction IDs associated with an output.
    */
   txIds: Array<TxId>;
+
+  fetching: boolean; // A flag indicating if this output is being fetched.
 
   /**
    * UNIX timestamp of the last time Explorer.fetchTxHistory was called for
@@ -176,8 +184,3 @@ export type NetworkData = {
  * Type definition for Discovery Information.
  */
 export type DiscoveryData = Record<NetworkId, NetworkData>;
-
-/**
- * Type definition for Unspent Transaction Output. Format: `${txId}:${vout}`.
- */
-export type Utxo = string; //`${txId}:${vout}`

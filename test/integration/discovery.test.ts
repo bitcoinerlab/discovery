@@ -19,8 +19,8 @@ import { ElectrumExplorer } from '@bitcoinerlab/explorer';
 const { BIP32 } = descriptors.DescriptorsFactory(secp256k1);
 import { DiscoveryFactory, TxStatus, Account } from '../../dist';
 
-const onAccountUsed = (account: Account) => {
-  console.log(`TRACE - onAccountUsed(${account}`);
+const onAccountUsed = (_account: Account) => {
+  //console.log(`TRACE - onAccountUsed(${account}`);
 };
 
 console.log(ElectrumExplorer);
@@ -78,46 +78,48 @@ for (const network of [networks.bitcoin]) {
           const discovery = new Discovery();
           await explorer.connect();
           console.time('FirstCall');
-          await discovery.discoverStandardAccounts({
+          await discovery.fetchStandardAccounts({
             masterNode,
             network,
             onAccountUsed
           });
           console.timeEnd('FirstCall');
           console.time('SecondCall');
-          await discovery.discoverStandardAccounts({
+          await discovery.fetchStandardAccounts({
             masterNode,
             network,
             onAccountUsed
           });
           console.timeEnd('SecondCall');
 
-          for (const account of discovery.getAccounts({ network })) {
+          for (const account of discovery.getUsedAccounts({ network })) {
             const descriptors = discovery.getAccountDescriptors({ account });
-            console.log(
-              `Next external index: ${discovery.getNextIndex({
-                descriptor: descriptors[0],
-                network,
-                txStatus: TxStatus.ALL
-              })}`
-            );
-            console.log(
-              `Next internal index: ${discovery.getNextIndex({
-                descriptor: descriptors[1],
-                network,
-                txStatus: TxStatus.ALL
-              })}`
-            );
+            //console.log(
+            //  `Next external index: ${discovery.getNextIndex({
+            //    descriptor: descriptors[0],
+            //    network,
+            //    txStatus: TxStatus.ALL
+            //  })}`
+            //);
+            //console.log(
+            //  `Next internal index: ${discovery.getNextIndex({
+            //    descriptor: descriptors[1],
+            //    network,
+            //    txStatus: TxStatus.ALL
+            //  })}`
+            //);
             const { balance } = discovery.getUtxosAndBalance({
               network,
               descriptors,
               txStatus: TxStatus.ALL
             });
-            console.log(`Balance for ${descriptors}: ${balance}`);
+            expect(balance).toEqual(0);
+            //console.log(`Balance for ${descriptors}: ${balance}`);
             const txHistory = discovery.getHistory({ descriptors, network });
-            console.log(
-              `Number of txs for ${descriptors}: ${txHistory.length}`
-            );
+            expect(txHistory.length).toBeGreaterThan(0);
+            //console.log(
+            //  `Number of txs for ${descriptors}: ${txHistory.length}`
+            //);
             //console.log(
             //  `Transaction for first transaction of ${expressions}: ${discovery.getTxHex(
             //    { network, tx: utxos[0] }

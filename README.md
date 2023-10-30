@@ -79,15 +79,22 @@ To get started, follow the steps below:
    
    Descriptor expressions are a simple language used to describe collections of Bitcoin output scripts. They enable the `Discovery` class to fetch detailed blockchain information about specific outputs. For more comprehensive insights into descriptor expressions, refer to the [BitcoinerLab descriptors module](https://bitcoinerlab.com/modules/descriptors).
    
-   To initiate the data retrieval process for all addresses associated with a ranged descriptor expression, execute:
+   To initiate (or update) the data retrieval process for all addresses associated with a ranged descriptor expression, execute:
    
    ```typescript
-   await discovery.discover({ descriptor, network, gapLimit: 3 });
+   await discovery.fetch({ descriptor, network, gapLimit: 3 });
    ```
    
    In the code snippet above, `descriptor` refers to a single descriptor expression in string format, which can be either ranged or fixed. A ranged descriptor allows for the optional specification of an `index` to isolate a specific output within the range. It's important to note that the `index` is only applicable to ranged descriptors. When an `index` is not specified, the discovery process fetches data for all outputs encompassed by the ranged descriptor. For operations that involve multiple descriptors, `descriptors` should be used with an array of strings.
    
-   Following the initial data retrieval via the `discover` method, subsequent methods are available to process and analyze the fetched data:
+    **Important**: Fetch descriptor data prior to using `getUtxos`, `getBalance`, or other methods described below. An error is thrown when deriving from unfetched descriptors to prevent unexpected results. Verify fetch completion with `whenFetched` if you're unsure whether a `fetch` has been performed on a descriptor:
+    
+    ```typescript
+    const fetchStatus = discovery.whenFetched({ descriptor, network });
+    if (fetchStatus === undefined) { /* Descriptor data is not ready for use. */ }
+    ```
+    
+    If fetch status is verified or known, proceed directly to the data derivation methods:
 
    - **Deriving UTXOs**:
      Use `getUtxos` to derive all unspent transaction outputs (UTXOs) from the fetched data:
@@ -122,13 +129,22 @@ To get started, follow the steps below:
      ```typescript
      const history = discovery.getHistory({ descriptors, network });
      ```
-   
-   - **Discovering Standard Accounts**:
-     The `discoverStandardAccounts` method is a helper that automates the common task of discovering standard accounts (pkh, sh(wpkh), wpkh) associated with a master node, using data already fetched from the network. This method saves developers time and eliminates repetitive coding tasks.
-   
-     Efficiently discover wallet accounts with:
+
+   - **Fetching Status and Timing**:
+     The `whenFetched` method offers insight into whether a descriptor's outputs are currently being fetched and the timestamp of the last successful fetch:
      ```typescript
-     await discovery.discoverStandardAccounts({
+     const fetchStatus = discovery.whenFetched({ descriptor, network });
+     // Returns: { fetching: boolean, timeFetched: number } or undefined if not fetched.
+     ```
+     This method is useful to avoid redundant network requests by checking if the data is already being fetched or has been recently updated. It works for both ranged and non-ranged descriptors and can be particularly helpful in optimizing data synchronization processes.
+
+   
+   - **Fetching Standard Accounts**:
+     The `fetchStandardAccounts` method is a helper that automates the common task of retrieving or updating standard accounts (pkh, sh(wpkh), wpkh) associated with a master node, using data already fetched from the network. This method saves developers time and eliminates repetitive coding tasks.
+   
+     Efficiently retrieve wallet accounts with:
+     ```typescript
+     await discovery.fetchStandardAccounts({
        masterNode,
        gapLimit: 20, // The default gap limit
        network,

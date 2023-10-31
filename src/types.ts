@@ -1,23 +1,25 @@
 // Copyright (c) 2023 Jose-Luis Landabaso - https://bitcoinerlab.com
 // Distributed under the MIT software license
-// Example of a discoveryInfo object:
-// const discoveryInfo = {
-//   ['TESTNET']: /*NetworkInfo*/ {
-//     descriptors: {
-//       "pkh([73c5da0a/44'/0'/0']xpub6B.../0/*)": /*DescriptorInfo*/ {
+//
+//
+// const discoveryData: DiscoveryData = Record<NetworkId, NetworkData> {
+//   ['TESTNET']: /*NetworkData: {descriptorMap, txMap}*/ {
+//     descriptorMap: Record<string,  DescriptorData> {
+//       "pkh([73c5da0a/44'/0'/0']xpub6B.../0/*)": DescriptorData {
 //         fetching: true,
 //         timeFetched: UNIXTIME_IN_SECONDS,
-//         scriptPubKeyInfoRecords: {
+//         range: Record<DescriptorIndex, OutputData>{ //DescriptorIndex = number|'non-ranged'
 //           //this is the index in ranged-descriptors. Use "non-ranged" if non-ranged
-//           12: /*ScriptPubKeyInfo*/ {
+//           12: OutputData {
 //             txIds: /*Array<TxId>*/['8923a3830d9c2eac01043ec30e75b0b2b7264697660f8f...'],
+//             fetching: true,
 //             timeFetched: UNIXTIME_IN_SECONDS
 //           }
 //         }
 //       }
 //     },
-//     txInfoRecords: {
-//       ['8923a3830d9c2eac01043ec30e75b0b2b7264697660f8f615c0483']: /*TxInfo*/ {
+//     txMap: Record<TxId, TxData> {
+//       ['8923a3830d9c2eac01043ec30e75b0b2b7264697660f8f615c0483']: TxData {
 //         blockHeight: 0,
 //         irreversible: false,
 //         txHex?: '0100000000010115b7e9d1f6b8164a0e95544a94f5b0fbfaadc35f84...'
@@ -25,6 +27,34 @@
 //     }
 //   }
 // };
+
+export type OutputCriteria = {
+  /**
+   * Descriptor expression representing one or potentially multiple outputs if
+   * ranged.
+   * Use either `descriptor` or `descriptors`, but not both simultaneously.
+   */
+  descriptor?: Descriptor;
+
+  /**
+   * An optional index associated with a ranged `descriptor`. Not applicable
+   * when using the `descriptors` array, even if its elements are ranged.
+   */
+  index?: number;
+
+  /**
+   * Array of descriptor expressions. Use either `descriptors` or `descriptor`,
+   * but not both simultaneously.
+   */
+  descriptors?: Array<Descriptor>;
+
+  /**
+   * Specifies the filtering criteria based on transaction status:
+   * `TxStatus.ALL`, `TxStatus.IRREVERSIBLE`, or `TxStatus.CONFIRMED`.
+   * @defaultValue TxStatus.ALL
+   */
+  txStatus?: TxStatus;
+};
 
 /**
  * Enumeration of network identifiers.
@@ -55,9 +85,14 @@ export enum TxStatus {
 export type TxId = string;
 
 /**
+ * Type definition for Unspent Transaction Output. Format: `${txId}:${vout}`.
+ */
+export type Utxo = string; //`${txId}:${vout}`
+
+/**
  * Type definition for Transaction Information.
  */
-export type TxInfo = {
+export type TxData = {
   /**
    * The block height.
    */
@@ -75,11 +110,13 @@ export type TxInfo = {
 /**
  * Type definition for Script Public Key Information.
  */
-export type ScriptPubKeyInfo = {
+export type OutputData = {
   /**
-   * Array of transaction IDs.
+   * Array of transaction IDs associated with an output.
    */
   txIds: Array<TxId>;
+
+  fetching: boolean; // A flag indicating if this output is being fetched.
 
   /**
    * UNIX timestamp of the last time Explorer.fetchTxHistory was called for
@@ -91,14 +128,14 @@ export type ScriptPubKeyInfo = {
 /**
  * Represents a descriptor expression.
  */
-export type Expression = string;
+export type Descriptor = string;
 
 /**
  * Represents an account. Accounts are descriptors pairs with keyPaths
- * ending in `{/0/*, /1/*}`. Per convention, in @bitcoinerlab an account is
+ * ending in `{/0/*, /1/*}`. Per convention, in BitcoinerLab an account is
  * identified by its external descriptor `keyPath = /0/*`.
  */
-export type Account = Expression;
+export type Account = Descriptor;
 
 /**
  * Represents the descriptor index for a ranged descriptor (number) or marks
@@ -110,12 +147,12 @@ export type DescriptorIndex = number | 'non-ranged';
  * Type definition for Descriptor Information. A descriptor can be ranged or 'non-ranged'.
  * @property {boolean} fetching - Indicates if the descriptor data is being fetched.
  * @property {number} timeFetched - UNIX timestamp of the last fetch, 0 if never fetched.
- * @property {Record<DescriptorIndex, ScriptPubKeyInfo>} scriptPubKeyInfoRecords - Records of ScriptPubKeyInfo.
+ * @property {Record<DescriptorIndex, OutputData>} range - Records of OutputData.
  */
-export type DescriptorInfo = {
+export type DescriptorData = {
   fetching: boolean; // A flag indicating if the descriptor data is being fetched.
   timeFetched: number; //0 if never fetched
-  scriptPubKeyInfoRecords: Record<DescriptorIndex, ScriptPubKeyInfo>;
+  range: Record<DescriptorIndex, OutputData>;
 };
 
 /**
@@ -126,23 +163,18 @@ export type TxHex = string;
 /**
  * Type definition for Network Information.
  */
-export type NetworkInfo = {
+export type NetworkData = {
   /**
-   *Records of DescriptorInfo.
+   *Records of DescriptorData.
    */
-  descriptors: Record<Expression, DescriptorInfo>;
+  descriptorMap: Record<Descriptor, DescriptorData>;
   /**
-   *Records of TxInfo.
+   *Records of TxData.
    */
-  txInfoRecords: Record<TxId, TxInfo>;
+  txMap: Record<TxId, TxData>;
 };
 
 /**
  * Type definition for Discovery Information.
  */
-export type DiscoveryInfo = Record<NetworkId, NetworkInfo>;
-
-/**
- * Type definition for Unspent Transaction Output. Format: `${txId}:${vout}`.
- */
-export type Utxo = string; //`${txId}:${vout}`
+export type DiscoveryData = Record<NetworkId, NetworkData>;

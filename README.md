@@ -55,8 +55,8 @@ To get started, follow the steps below:
 
    ```typescript
    import { DiscoveryFactory } from '@bitcoinerlab/discovery';
-   const { Discovery } = DiscoveryFactory(explorer); // where 'explorer' corresponds to
-                                                     // 'esploraExplorer' or 'electrumExplorer' above
+   const { Discovery } = DiscoveryFactory(explorer, network);
+   // where 'explorer' corresponds to 'esploraExplorer' or 'electrumExplorer' above
    await explorer.connect();
    const discovery = new Discovery();
    // Perform discovery operations...
@@ -82,14 +82,14 @@ To get started, follow the steps below:
    To initiate (or update) the data retrieval process for addresses associated with a descriptor, whether ranged or fixed, execute [`fetch`](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html#fetch):
 
    ```typescript
-   await discovery.fetch({ descriptor, network });
+   await discovery.fetch({ descriptor });
    ```
    This method retrieves all associated outputs for a given descriptor. If the descriptor is ranged, you can also specify an index to target a specific output within that range. When dealing with multiple descriptors, use the `descriptors` parameter with an array of strings. See the [`fetch` API documentation](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html#fetch) for detailed usage.
    
    **Note**: To ensure accurate data computations, fetch descriptor data (using the query above) before employing methods like `getUtxos`, `getBalance`, or others described below. An error will alert you when attempting to derive data from descriptors that have not been previously fetched. This ensures you do not compute data based on incomplete information. If you are unsure whether a descriptor has been previously fetched or need to ensure that the data is up-to-date, use [`whenFetched`](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html#whenFetched):
    
    ```typescript
-   const fetchStatus = discovery.whenFetched({ descriptor, network });
+   const fetchStatus = discovery.whenFetched({ descriptor });
    if (fetchStatus === undefined) {
      // The descriptor has not been fetched.
    } else {
@@ -105,13 +105,13 @@ To get started, follow the steps below:
    - **Deriving UTXOs**:
      Use [`getUtxos`](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html#getUtxos) to derive all unspent transaction outputs (UTXOs) from the fetched data:
      ```typescript
-     const { utxos } = discovery.getUtxos({ descriptor, network });
+     const { utxos } = discovery.getUtxos({ descriptor });
      ```
    
    - **Calculating Balance**:
      Use [`getBalance`](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html#getBalance) to calculate the total balance from the fetched data:
      ```typescript
-     const { balance } = discovery.getBalance({ descriptor, network });
+     const { balance } = discovery.getBalance({ descriptor });
      ```
    
    Other methods to derive or calculate data include:
@@ -119,14 +119,14 @@ To get started, follow the steps below:
    - **Determining the Next Index**: 
      For ranged descriptor expressions, determine the next unused index:
      ```typescript
-     const index = discovery.getNextIndex({ descriptor, network });
+     const index = discovery.getNextIndex({ descriptor });
      ```
      See the [`getNextIndex` API documentation](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html#getNextIndex) for detailed usage.
    
    - **Identifying Descriptors by UTXO**:
      Find the descriptor that corresponds to a specific UTXO using [`getDescriptor`](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html#getDescriptor):
      ```typescript
-     const descriptorData = discovery.getDescriptor({ utxo, network });
+     const descriptorData = discovery.getDescriptor({ utxo });
      // Returns: { descriptor, index? }, with 'index' provided for ranged descriptors.
      ```
      This is particularly useful for transaction preparation when you need to instantiate a `new Output({ descriptor })` using the descriptor associated with the UTXO, as facilitated by the [@bitcoinerlab/descriptors](https://bitcoinerlab.com/modules/descriptors) library.
@@ -134,7 +134,7 @@ To get started, follow the steps below:
    - **Accessing Transaction History**:
      Access all transactions associated with a specific descriptor expression (or an array of them):
      ```typescript
-     const history = discovery.getHistory({ descriptors, network });
+     const history = discovery.getHistory({ descriptors });
      ```
      Refer to the [`getHistory` API](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html#getHistory) for the details.
    
@@ -146,7 +146,6 @@ To get started, follow the steps below:
      await discovery.fetchStandardAccounts({
        masterNode,
        gapLimit: 20, // The default gap limit
-       network,
        onAccountUsed: (account) => {
          // Optional: Trigger app updates when an account with transactions is found.
        },

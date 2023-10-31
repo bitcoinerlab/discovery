@@ -66,7 +66,7 @@ for (const network of [networks.bitcoin]) {
       test(
         `Discover Abandon`,
         async () => {
-          const { Discovery } = DiscoveryFactory(explorer);
+          const { Discovery } = DiscoveryFactory(explorer, network);
           const masterNode = BIP32.fromSeed(
             mnemonicToSeedSync(
               //'camp foam advice east amount dolphin aspect drift dumb column job absorb' //unused
@@ -80,49 +80,44 @@ for (const network of [networks.bitcoin]) {
           console.time('FirstCall');
           await discovery.fetchStandardAccounts({
             masterNode,
-            network,
             onAccountUsed
           });
           console.timeEnd('FirstCall');
           console.time('SecondCall');
           await discovery.fetchStandardAccounts({
             masterNode,
-            network,
             onAccountUsed
           });
           console.timeEnd('SecondCall');
 
-          for (const account of discovery.getUsedAccounts({ network })) {
+          for (const account of discovery.getUsedAccounts()) {
             const descriptors = discovery.getAccountDescriptors({ account });
             //console.log(
             //  `Next external index: ${discovery.getNextIndex({
             //    descriptor: descriptors[0],
-            //    network,
             //    txStatus: TxStatus.ALL
             //  })}`
             //);
             //console.log(
             //  `Next internal index: ${discovery.getNextIndex({
             //    descriptor: descriptors[1],
-            //    network,
             //    txStatus: TxStatus.ALL
             //  })}`
             //);
             const { balance } = discovery.getUtxosAndBalance({
-              network,
               descriptors,
               txStatus: TxStatus.ALL
             });
             expect(balance).toEqual(0);
             //console.log(`Balance for ${descriptors}: ${balance}`);
-            const txHistory = discovery.getHistory({ descriptors, network });
+            const txHistory = discovery.getHistory({ descriptors });
             expect(txHistory.length).toBeGreaterThan(0);
             //console.log(
             //  `Number of txs for ${descriptors}: ${txHistory.length}`
             //);
             //console.log(
             //  `Transaction for first transaction of ${expressions}: ${discovery.getTxHex(
-            //    { network, tx: utxos[0] }
+            //    { utxo: utxos[0] }
             //  )}`
             //);
           }

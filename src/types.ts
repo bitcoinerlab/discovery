@@ -28,7 +28,6 @@
 //   }
 // };
 
-import type { Network } from 'bitcoinjs-lib';
 export type OutputCriteria = {
   /**
    * Descriptor expression representing one or potentially multiple outputs if
@@ -48,11 +47,6 @@ export type OutputCriteria = {
    * but not both simultaneously.
    */
   descriptors?: Array<Descriptor>;
-
-  /**
-   * The network to which the outputs belong.
-   */
-  network: Network;
 
   /**
    * Specifies the filtering criteria based on transaction status:

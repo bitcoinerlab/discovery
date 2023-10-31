@@ -64,7 +64,12 @@ export function DiscoveryFactory(
    * Bitcoin network. It is responsible for fetching blockchain data like UTXOs,
    * transaction details, etc.
    */
-  explorer: Explorer
+  explorer: Explorer,
+  /**
+   * The Bitcoin network to use.
+   * One of bitcoinjs-lib [`networks`](https://github.com/bitcoinjs/bitcoinjs-lib/blob/master/src/networks.js) (or another one following the same interface).
+   */
+  network: Network
 ) {
   /**
    * A class to discover funds in a Bitcoin network using descriptors.
@@ -87,7 +92,7 @@ export function DiscoveryFactory(
         outputsPerDescriptorCacheSize = 10000
       }: {
         /**
-         * Cache size limit for descriptor expressions per network.
+         * Cache size limit for descriptor expressions.
          * The cache is used to speed up data queries by avoiding unnecessary
          * recomputations. However, it is essential to manage the memory
          * usage of the application. If the cache size is unbounded, it could lead
@@ -183,8 +188,8 @@ export function DiscoveryFactory(
     }
 
     /**
-     * Asynchronously discovers an output, given a descriptor expression,
-     * descriptor index, and network. It first retrieves the output,
+     * Asynchronously discovers an output, given a descriptor expression and
+     * index. It first retrieves the output,
      * computes its scriptHash, and fetches the transaction history associated
      * with this scriptHash from the explorer. It then updates the internal
      * discoveryData accordingly.
@@ -204,8 +209,7 @@ export function DiscoveryFactory(
      */
     async #fetchOutput({
       descriptor,
-      index,
-      network
+      index
     }: {
       /**
        * The descriptor expression associated with the scriptPubKey to discover.
@@ -215,10 +219,6 @@ export function DiscoveryFactory(
        * The descriptor index associated with the scriptPubKey to discover (if ranged).
        */
       index?: number;
-      /**
-       * The network associated with the scriptPubKey to discover.
-       */
-      network: Network;
     }): Promise<boolean> {
       if (
         (typeof index !== 'undefined' && descriptor.indexOf('*') === -1) ||
@@ -283,20 +283,13 @@ export function DiscoveryFactory(
     }
 
     /**
-     * Asynchronously fetches all transactions associated with a specific
-     * network for all used outputs.
+     * Asynchronously fetches all raw transaction data from all transactions
+     * associated with all the outputs fetched.
      *
      * @param options
-     * @returns Resolves when all the transactions for the provided network have been fetched and stored in discoveryData.
+     * @returns Resolves when all the transactions have been fetched and stored in discoveryData.
      */
-    async #fetchTxs({
-      network
-    }: {
-      /**
-       * The network whose transactions are to be fetched.
-       */
-      network: Network;
-    }) {
+    async #fetchTxs() {
       const txHexRecords: Record<TxId, TxHex> = {};
       const networkId = getNetworkId(network);
       const networkData = this.#discoveryData[networkId];
@@ -340,7 +333,6 @@ export function DiscoveryFactory(
       index,
       descriptors,
       gapLimit = 20,
-      network,
       onUsed,
       onChecking,
       next
@@ -364,10 +356,6 @@ export function DiscoveryFactory(
        */
       descriptors?: Array<Descriptor>;
 
-      /**
-       * The network to which the outputs belong.
-       */
-      network: Network;
       /**
        * The gap limit for the fetch operation when retrieving ranged descriptors.
        * @defaultValue 20
@@ -441,8 +429,7 @@ export function DiscoveryFactory(
         while (isRanged ? gap < gapLimit : index < 1 /*once if unranged*/) {
           const used = await this.#fetchOutput({
             descriptor,
-            ...(isRanged ? { index } : {}),
-            network
+            ...(isRanged ? { index } : {})
           });
 
           if (used) {
@@ -472,7 +459,7 @@ export function DiscoveryFactory(
       }
 
       const promises = [];
-      if (usedOutput) promises.push(this.#fetchTxs({ network }));
+      if (usedOutput) promises.push(this.#fetchTxs());
       if (nextPromise) promises.push(nextPromise);
       await Promise.all(promises);
     }
@@ -492,8 +479,7 @@ export function DiscoveryFactory(
      */
     whenFetched({
       descriptor,
-      index,
-      network
+      index
     }: {
       /**
        * Descriptor expression representing one or potentially multiple outputs
@@ -505,11 +491,6 @@ export function DiscoveryFactory(
        * An optional index associated with a ranged `descriptor`.
        */
       index?: number;
-
-      /**
-       * The network to which the outputs belong.
-       */
-      network: Network;
     }): { fetching: boolean; timeFetched: number } | undefined {
       if (typeof index !== 'undefined' && descriptor.indexOf('*') === -1)
         throw new Error(`Pass index (optionally) only for ranged descriptors`);
@@ -540,8 +521,7 @@ export function DiscoveryFactory(
     #ensureFetched({
       descriptor,
       index,
-      descriptors,
-      network
+      descriptors
     }: {
       /**
        * Descriptor expression representing one or potentially multiple outputs
@@ -561,11 +541,6 @@ export function DiscoveryFactory(
        * but not both simultaneously.
        */
       descriptors?: Array<Descriptor>;
-
-      /**
-       * The network to which the outputs belong.
-       */
-      network: Network;
     }) {
       if ((descriptor && descriptors) || !(descriptor || descriptors))
         throw new Error(`Pass descriptor or descriptors`);
@@ -576,14 +551,14 @@ export function DiscoveryFactory(
         throw new Error(`Don't pass index`);
       if (descriptors)
         descriptors.forEach(descriptor => {
-          if (!this.whenFetched({ descriptor, network }))
+          if (!this.whenFetched({ descriptor }))
             throw new Error(
               `Cannot derive data from ${descriptor} since it has not been previously fetched`
             );
         });
       else if (
         descriptor &&
-        !this.whenFetched({ descriptor, ...(index ? { index } : {}), network })
+        !this.whenFetched({ descriptor, ...(index ? { index } : {}) })
       )
         throw new Error(
           `Cannot derive data from ${descriptor}/${index} since it has not been previously fetched`
@@ -592,7 +567,7 @@ export function DiscoveryFactory(
 
     /**
      * Asynchronously discovers standard accounts (pkh, sh(wpkh), wpkh) associated
-     * with a master node in a specific network. It uses a given gap limit for
+     * with a master node. It uses a given gap limit for
      * discovery.
      *
      * @param options
@@ -602,7 +577,6 @@ export function DiscoveryFactory(
     async fetchStandardAccounts({
       masterNode,
       gapLimit = 20,
-      network,
       onAccountUsed,
       onAccountChecking
     }: {
@@ -615,10 +589,6 @@ export function DiscoveryFactory(
        * @defaultValue 20
        */
       gapLimit?: number;
-      /**
-       * The network in which to discover the accounts.
-       */
-      network: Network;
       /**
        * Optional callback function triggered when an {@link Account account}
        * (associated with the master node) has been identified as having past
@@ -640,7 +610,6 @@ export function DiscoveryFactory(
     }) {
       const discoveryTasks = [];
       const { pkhBIP32, shWpkhBIP32, wpkhBIP32 } = scriptExpressions;
-      if (!network) throw new Error(`Error: provide a network`);
       if (!masterNode) throw new Error(`Error: provide a masterNode`);
       for (const expressionFn of [pkhBIP32, shWpkhBIP32, wpkhBIP32]) {
         let accountNumber = 0;
@@ -663,7 +632,6 @@ export function DiscoveryFactory(
           await this.fetch({
             descriptors,
             gapLimit,
-            network,
             next,
             ...(onUsed ? { onUsed } : {}),
             ...(onChecking ? { onChecking } : {})
@@ -675,27 +643,19 @@ export function DiscoveryFactory(
     }
 
     /**
-     * Retrieves an array of descriptors with used outputs associated with a specific
-     * network. The result is cached based on the size specified in the constructor.
+     * Retrieves the array of descriptors with used outputs.
+     * The result is cached based on the size specified in the constructor.
      * As long as this cache size is not exceeded, this function will maintain
-     * the same object reference per networkId if the returned array hasn't changed.
+     * the same object reference if the returned array hasn't changed.
      * This characteristic can be particularly beneficial in
      * React and similar projects, where re-rendering occurs based on reference changes.
      *
      * @param options
      * @returns Returns an array of descriptor expressions.
-     * These are derived from the discovery information of the Bitcoin network
-     * and the provided network.
+     * These are derived from the discovery information.
      *
      */
-    getUsedDescriptors({
-      network
-    }: {
-      /**
-       * The network associated with the descriptors.
-       */
-      network: Network;
-    }): Array<Descriptor> {
+    getUsedDescriptors(): Array<Descriptor> {
       const networkId = getNetworkId(network);
       return this.#derivers.deriveUsedDescriptors(
         this.#discoveryData,
@@ -704,12 +664,11 @@ export function DiscoveryFactory(
     }
 
     /**
-     * Retrieves all the {@link Account accounts} with used outputs in the network: those descriptors with keyPaths
-     * ending in `{/0/*, /1/*}`. An account is identified
+     * Retrieves all the {@link Account accounts} with used outputs:
+     * those descriptors with keyPaths ending in `{/0/*, /1/*}`. An account is identified
      * by its external descriptor `keyPath = /0/*`. The result is cached based on
      * the size specified in the constructor. As long as this cache size is not
-     * exceeded, this function will maintain the same object reference per
-     * networkId if the returned array remains unchanged.
+     * exceeded, this function will maintain the same object reference if the returned array remains unchanged.
      * This characteristic can be especially beneficial in
      * React or similar projects, where re-rendering occurs based on reference changes.
      *
@@ -717,14 +676,7 @@ export function DiscoveryFactory(
      * @returns An array of accounts, each represented
      * as its external descriptor expression.
      */
-    getUsedAccounts({
-      network
-    }: {
-      /**
-       * The network associated with the descriptors.
-       */
-      network: Network;
-    }): Array<Account> {
+    getUsedAccounts(): Array<Account> {
       const networkId = getNetworkId(network);
       return this.#derivers.deriveUsedAccounts(this.#discoveryData, networkId);
     }
@@ -754,8 +706,7 @@ export function DiscoveryFactory(
 
     /**
      * Retrieves unspent transaction outputs (UTXOs) and balance associated with
-     * one or more descriptor expressions within a specified network and
-     * transaction status.
+     * one or more descriptor expressions and transaction status.
      *
      * This method is useful for accessing the available funds for specific
      * descriptor expressions in the wallet, considering the transaction status
@@ -776,14 +727,12 @@ export function DiscoveryFactory(
       descriptor,
       index,
       descriptors,
-      network,
       txStatus = TxStatus.ALL
     }: OutputCriteria): { utxos: Array<Utxo>; balance: number } {
       this.#ensureFetched({
         ...(descriptor ? { descriptor } : {}),
         ...(descriptors ? { descriptors } : {}),
-        ...(index ? { index } : {}),
-        network
+        ...(index ? { index } : {})
       });
       if ((descriptor && descriptors) || !(descriptor || descriptors))
         throw new Error(`Pass descriptor or descriptors`);
@@ -841,8 +790,7 @@ export function DiscoveryFactory(
     }
 
     /**
-     * Retrieves the next available index for a given descriptor within a
-     * specified network.
+     * Retrieves the next available index for a given descriptor.
      *
      * The method retrieves the currently highest index used, and returns the
      * next available index by incrementing it by 1.
@@ -851,14 +799,9 @@ export function DiscoveryFactory(
      * @returns The next available index.
      */
     getNextIndex({
-      network,
       descriptor,
       txStatus = TxStatus.ALL
     }: {
-      /**
-       * The network associated with the account.
-       */
-      network: Network;
       /**
        * The ranged descriptor expression for which to retrieve the next
        * available index.
@@ -874,7 +817,7 @@ export function DiscoveryFactory(
     }) {
       if (!descriptor || descriptor.indexOf('*') === -1)
         throw new Error(`Error: invalid ranged descriptor: ${descriptor}`);
-      this.#ensureFetched({ descriptor, network });
+      this.#ensureFetched({ descriptor });
 
       const networkId = getNetworkId(network);
       const descriptorMap = this.#discoveryData[networkId].descriptorMap;
@@ -897,7 +840,7 @@ export function DiscoveryFactory(
      * Retrieves the transaction history for one or more descriptor expressions.
      *
      * This method is useful for accessing transaction records associated with one or more
-     * descriptor expressions within a specified network and transaction status.
+     * descriptor expressions and transaction status.
      *
      * The return value is computed based on the current state of discoveryData. The method
      * uses memoization to maintain the same object reference for the returned result, given
@@ -914,7 +857,6 @@ export function DiscoveryFactory(
       descriptor,
       index,
       descriptors,
-      network,
       txStatus = TxStatus.ALL
     }: OutputCriteria): Array<TxData> {
       if ((descriptor && descriptors) || !(descriptor || descriptors))
@@ -931,8 +873,7 @@ export function DiscoveryFactory(
       this.#ensureFetched({
         ...(descriptor ? { descriptor } : {}),
         ...(descriptors ? { descriptors } : {}),
-        ...(index ? { index } : {}),
-        network
+        ...(index ? { index } : {})
       });
       const networkId = getNetworkId(network);
       const descriptorMap = this.#discoveryData[networkId].descriptorMap;
@@ -962,21 +903,15 @@ export function DiscoveryFactory(
     /**
      * Retrieves the hexadecimal representation of a transaction (TxHex) from the
      * discoveryData given the transaction ID (TxId) or a Unspent Transaction Output (Utxo)
-     * as well as the network in which the transaction occurred.
      *
      * @param options
      * @returns The hexadecimal representation of the transaction.
      * @throws Will throw an error if the transaction ID is invalid or if the TxHex is not found.
      */
     getTxHex({
-      network,
       txId,
       utxo
     }: {
-      /**
-       * The network where the transaction took place.
-       */
-      network: Network;
       /**
        * The transaction ID.
        */
@@ -1003,8 +938,7 @@ export function DiscoveryFactory(
      * Retrieves the transaction data as a bitcoinjs-lib
      * {@link https://github.com/bitcoinjs/bitcoinjs-lib/blob/master/ts_src/transaction.ts Transaction}
      * object given the transaction
-     * ID (TxId) or a Unspent Transaction Output (Utxo) and the network in which
-     * the transaction occurred. The transaction data is obtained by first getting
+     * ID (TxId) or a Unspent Transaction Output (Utxo). The transaction data is obtained by first getting
      * the transaction hexadecimal representation using getTxHex() method.
      *
      * Use this method for quick access to the Transaction object, which avoids the
@@ -1016,14 +950,9 @@ export function DiscoveryFactory(
      * @returns The transaction data as a Transaction object.
      */
     getTransaction({
-      network,
       txId,
       utxo
     }: {
-      /**
-       * The network where the transaction took place.
-       */
-      network: Network;
       /**
        * The transaction ID.
        */
@@ -1034,7 +963,6 @@ export function DiscoveryFactory(
       utxo?: Utxo;
     }): Transaction {
       const txHex = this.getTxHex({
-        network,
         ...(utxo ? { utxo } : {}),
         ...(txId ? { txId } : {})
       });
@@ -1045,13 +973,8 @@ export function DiscoveryFactory(
      * Given an unspent tx output, this function retrieves its descriptor.
      */
     getDescriptor({
-      network,
       utxo
     }: {
-      /**
-       * The network where the transaction took place.
-       */
-      network: Network;
       /**
        * The UTXO.
        */
@@ -1097,8 +1020,7 @@ export function DiscoveryFactory(
           if (
             this.getUtxosAndBalance({
               descriptor,
-              ...(isRanged ? { index: Number(indexStr) } : {}),
-              network
+              ...(isRanged ? { index: Number(indexStr) } : {})
             }).utxos.includes(utxo)
           ) {
             if (output)

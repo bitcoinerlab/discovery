@@ -154,7 +154,7 @@ describe('Discovery on regtest', () => {
       expect(await discoverer.explorer.fetchBlockHeight()).toEqual(
         await regtestUtils.height()
       );
-      const { Discovery } = DiscoveryFactory(discoverer.explorer);
+      const { Discovery } = DiscoveryFactory(discoverer.explorer, network);
       discoverer.discovery = new Discovery();
     });
   }
@@ -193,8 +193,7 @@ describe('Discovery on regtest', () => {
             await expect(
               discoverer.discovery!.fetch({
                 gapLimit,
-                descriptor,
-                network
+                descriptor
               })
             ).rejects.toThrow(error);
           });
@@ -203,8 +202,7 @@ describe('Discovery on regtest', () => {
             await expect(
               discoverer.discovery!.fetch({
                 gapLimit,
-                descriptor,
-                network
+                descriptor
               })
             ).resolves.not.toThrow();
           });
@@ -219,23 +217,20 @@ describe('Discovery on regtest', () => {
               if (outOfGapLimit) {
                 const when = discoverer.discovery!.whenFetched({
                   descriptor,
-                  ...(index === 'non-ranged' ? {} : { index: Number(index) }),
-                  network
+                  ...(index === 'non-ranged' ? {} : { index: Number(index) })
                 });
                 expect(when).toEqual(undefined);
                 expect(() => {
                   discoverer.discovery!.getUtxosAndBalance({
                     descriptor,
-                    ...(index === 'non-ranged' ? {} : { index: Number(index) }),
-                    network
+                    ...(index === 'non-ranged' ? {} : { index: Number(index) })
                   });
                 }).toThrow();
               } else {
                 ({ balance: balanceDefault, utxos: utxosDefault } =
                   discoverer.discovery!.getUtxosAndBalance({
                     descriptor,
-                    ...(index === 'non-ranged' ? {} : { index: Number(index) }),
-                    network
+                    ...(index === 'non-ranged' ? {} : { index: Number(index) })
                   }));
                 expect(balanceDefault).toEqual(balance);
                 expect(utxosDefault.length).toEqual(1);
@@ -245,15 +240,13 @@ describe('Discovery on regtest', () => {
               if (outOfGapLimit) {
                 const when = discoverer.discovery!.whenFetched({
                   descriptor,
-                  ...(index === 'non-ranged' ? {} : { index: Number(index) }),
-                  network
+                  ...(index === 'non-ranged' ? {} : { index: Number(index) })
                 });
                 expect(when).toEqual(undefined);
                 expect(() => {
                   discoverer.discovery!.getUtxosAndBalance({
                     descriptor,
-                    ...(index === 'non-ranged' ? {} : { index: Number(index) }),
-                    network
+                    ...(index === 'non-ranged' ? {} : { index: Number(index) })
                   });
                 }).toThrow();
               } else {
@@ -261,7 +254,6 @@ describe('Discovery on regtest', () => {
                   discoverer.discovery!.getUtxosAndBalance({
                     descriptor,
                     ...(index === 'non-ranged' ? {} : { index: Number(index) }),
-                    network,
                     txStatus: TxStatus.ALL
                   });
                 expect(balanceAll).toEqual(balance);
@@ -273,15 +265,13 @@ describe('Discovery on regtest', () => {
               if (outOfGapLimit) {
                 const when = discoverer.discovery!.whenFetched({
                   descriptor,
-                  ...(index === 'non-ranged' ? {} : { index: Number(index) }),
-                  network
+                  ...(index === 'non-ranged' ? {} : { index: Number(index) })
                 });
                 expect(when).toEqual(undefined);
                 expect(() => {
                   discoverer.discovery!.getUtxosAndBalance({
                     descriptor,
-                    ...(index === 'non-ranged' ? {} : { index: Number(index) }),
-                    network
+                    ...(index === 'non-ranged' ? {} : { index: Number(index) })
                   });
                 }).toThrow();
               } else {
@@ -289,7 +279,6 @@ describe('Discovery on regtest', () => {
                   discoverer.discovery!.getUtxosAndBalance({
                     descriptor,
                     ...(index === 'non-ranged' ? {} : { index: Number(index) }),
-                    network,
                     txStatus: TxStatus.CONFIRMED
                   });
                 expect(utxosConfirmed.length).toEqual(totalMined > 0 ? 1 : 0);
@@ -301,15 +290,13 @@ describe('Discovery on regtest', () => {
               if (outOfGapLimit) {
                 const when = discoverer.discovery!.whenFetched({
                   descriptor,
-                  ...(index === 'non-ranged' ? {} : { index: Number(index) }),
-                  network
+                  ...(index === 'non-ranged' ? {} : { index: Number(index) })
                 });
                 expect(when).toEqual(undefined);
                 expect(() => {
                   discoverer.discovery!.getUtxosAndBalance({
                     descriptor,
-                    ...(index === 'non-ranged' ? {} : { index: Number(index) }),
-                    network
+                    ...(index === 'non-ranged' ? {} : { index: Number(index) })
                   });
                 }).toThrow();
               } else {
@@ -319,7 +306,6 @@ describe('Discovery on regtest', () => {
                 } = discoverer.discovery!.getUtxosAndBalance({
                   descriptor,
                   ...(index === 'non-ranged' ? {} : { index: Number(index) }),
-                  network,
                   txStatus: TxStatus.IRREVERSIBLE
                 });
                 expect(utxosIrreversible.length).toEqual(
@@ -337,8 +323,7 @@ describe('Discovery on regtest', () => {
           test(`getUtxosAndBalance default status for ${descriptor} using ${discoverer.name} after ${totalMined} blocks`, () => {
             ({ balance: balanceDefault, utxos: utxosDefault } =
               discoverer.discovery!.getUtxosAndBalance({
-                descriptor,
-                network
+                descriptor
               }));
             expect(balanceDefault).toEqual(totalBalance);
             expect(utxosDefault.length).toEqual(totalUtxosCount);
@@ -347,7 +332,6 @@ describe('Discovery on regtest', () => {
             const { balance: balanceAll, utxos: utxosAll } =
               discoverer.discovery!.getUtxosAndBalance({
                 descriptor,
-                network,
                 txStatus: TxStatus.ALL
               });
             expect(balanceAll).toEqual(totalBalance);
@@ -358,7 +342,6 @@ describe('Discovery on regtest', () => {
             const { balance: balanceConfirmed, utxos: utxosConfirmed } =
               discoverer.discovery!.getUtxosAndBalance({
                 descriptor,
-                network,
                 txStatus: TxStatus.CONFIRMED
               });
             expect(balanceConfirmed).toEqual(totalMined > 0 ? totalBalance : 0);
@@ -370,7 +353,6 @@ describe('Discovery on regtest', () => {
             const { balance: balanceIrreversible, utxos: utxosIrreversible } =
               discoverer.discovery!.getUtxosAndBalance({
                 descriptor,
-                network,
                 txStatus: TxStatus.IRREVERSIBLE
               });
             expect(balanceIrreversible).toEqual(
@@ -389,34 +371,31 @@ describe('Discovery on regtest', () => {
       test(`Discover standard with ${discoverer.name}`, async () => {
         await discoverer.discovery!.fetchStandardAccounts({
           masterNode,
-          network,
           onAccountUsed
         });
-        const accounts = discoverer.discovery!.getUsedAccounts({ network });
+        const accounts = discoverer.discovery!.getUsedAccounts();
         expect(accounts.length).toEqual(0);
       });
       //console.log(
       //  JSON.stringify(
-      //    discoverer.discovery!.getUsedAccounts({ network: networks.regtest }),
+      //    discoverer.discovery!.getUsedAccounts(),
       //    null,
       //    2
       //  )
       //);
-      //await discoverer.discovery!.fetchTxs({ network });
+      //await discoverer.discovery!.fetchTxs();
       //console.log(JSON.stringify(discoverer.discovery!.getDiscoveryInfo(), null, 2));
     }
   }
   for (const discoverer of discoverers) {
     test(`getUtxosAndBalance from non discovered expression using ${discoverer.name}`, async () => {
       const when = discoverer.discovery!.whenFetched({
-        descriptor: fixtures.regtest.nonDiscoveredDescriptor,
-        network
+        descriptor: fixtures.regtest.nonDiscoveredDescriptor
       });
       expect(when).toEqual(undefined);
       expect(() => {
         discoverer.discovery!.getUtxosAndBalance({
-          descriptor: fixtures.regtest.nonDiscoveredDescriptor,
-          network
+          descriptor: fixtures.regtest.nonDiscoveredDescriptor
         });
       }).toThrow();
     });

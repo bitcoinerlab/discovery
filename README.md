@@ -42,8 +42,7 @@ To get started, follow the steps below:
      host: 'electrum.blockstream.info',
      port: 60002,
      protocol: 'ssl', // 'ssl' and 'tcp' allowed
-     network: networks.testnet // Specify the server's network; defaults to networks.bitcoin (mainnet) if not specified
-
+     network: networks.testnet // Specify the server's network; defaults to networks.bitcoin (mainnet)
    });
    ```
 
@@ -52,7 +51,7 @@ To get started, follow the steps below:
     Please refer to the [Explorer documentation](https://github.com/bitcoinerlab/explorer) for more details.
 
 3. **Create the Discovery Class**:
-   After creating the explorer client instance, you can create the `Discovery` class, which you will use to query the Blockchain. The `Discovery` class is created using the `DiscoveryFactory` function, passing the previously created explorer instance.
+   After creating the explorer client instance, you can create the `Discovery` class, which you will use to query the Blockchain. The `Discovery` class is created using the [`DiscoveryFactory` function](https://bitcoinerlab.com/modules/discovery/api/functions/DiscoveryFactory.html), passing the previously created explorer instance.
 
    ```typescript
    import { DiscoveryFactory } from '@bitcoinerlab/discovery';
@@ -60,50 +59,57 @@ To get started, follow the steps below:
                                                      // 'esploraExplorer' or 'electrumExplorer' above
    await explorer.connect();
    const discovery = new Discovery();
+   // Perform discovery operations...
    await explorer.close();
    ```
 
-   The `Discovery` constructor accepts an optional object with two properties that are crucial for managing the application's memory usage:
+   The [`Discovery` constructor](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html#constructor), `new Discovery({ descriptorsCacheSize, outputsPerDescriptorCacheSize })`, accepts an optional object with two properties that are crucial for managing the application's memory usage:
 
-   - `descriptorsCacheSize`: This property represents the cache size limit for descriptor expressions. The cache, implemented using memoizers, serves a dual purpose: it speeds up data queries by avoiding unnecessary recomputations, and it helps maintain immutability. Reaching the limit of the cache size may lead to a loss of immutability and the returned reference may change. This is not a critical issue, as the data is still correct, but it may trigger extra renders in the UI. The default value is 1000, and you can set it to 0 for unbounded caches.
-   - `outputsPerDescriptorCacheSize`: This property represents the cache size limit for indices per expression, related to the number of addresses in ranged descriptor expressions. Similar to the `descriptorsCacheSize`, reaching the limit of this cache size may lead to the same immutability challenges. The default value is 10000, and you can set it to 0 for unbounded caches.
+   - `descriptorsCacheSize`: This property represents the cache size limit for descriptor expressions. The cache, implemented using memoizers, serves a dual purpose: it speeds up data derivation by avoiding unnecessary recomputations, and it helps maintain immutability. Reaching the limit of the cache size may lead to a loss of immutability and the returned reference may change. This is not a critical issue, as the returned data is still correct, but it may trigger extra renders in the UI. The default value is `1000`, and you can set it to `0` for unbounded caches.
+   - `outputsPerDescriptorCacheSize`: This property represents the cache size limit for indices per expression, related to the number of addresses in ranged descriptor expressions. Similar to the `descriptorsCacheSize`, reaching the limit of this cache size may lead to the same immutability challenges. The default value is `10000`, and you can set it to `0` for unbounded caches.
 
-   It is important to note that the default values for `descriptorsCacheSize` and `outputsPerDescriptorCacheSize` should be sufficient for most projects. However, if you expect to work with a large number of descriptor expressions or addresses, you may need to adjust these values accordingly. Conversely, for projects that require minimal resources, you may consider reducing these values to conserve memory.
+   It's noteworthy that the default settings for `descriptorsCacheSize` and `outputsPerDescriptorCacheSize` are adequate for most use cases. Yet, for projects handling a large volume of descriptor expressions or addresses, increasing these limits may be necessary. On the flip side, if conserving memory is a priority, particularly for projects with minimal resource needs, consider lowering these values.
 
    **Note**: The `connect` method must be run before starting any data queries to the blockchain, and the `close` method should be run after you have completed all necessary queries and no longer need to query the blockchain.
 
 
 4. **Using the Discovery Methods**
 
-   Once you've instantiated the `Discovery` class, you have access to a variety of methods to fetch and derive blockchain data from *Bitcoin Output Descriptors*.
+   Once you've instantiated the `Discovery` class, you have access to [a variety of methods](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html#fetch) to fetch and derive blockchain data from *Bitcoin Output Descriptors*.
    
    Descriptor expressions are a simple language used to describe collections of Bitcoin output scripts. They enable the `Discovery` class to fetch detailed blockchain information about specific outputs. For more comprehensive insights into descriptor expressions, refer to the [BitcoinerLab descriptors module](https://bitcoinerlab.com/modules/descriptors).
    
-   To initiate (or update) the data retrieval process for all addresses associated with a ranged descriptor expression, execute:
+   To initiate (or update) the data retrieval process for addresses associated with a descriptor, whether ranged or fixed, execute [`fetch`](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html#fetch):
+
+   ```typescript
+   await discovery.fetch({ descriptor, network });
+   ```
+   This method retrieves all associated outputs for a given descriptor. If the descriptor is ranged, you can also specify an index to target a specific output within that range. When dealing with multiple descriptors, use the `descriptors` parameter with an array of strings. See the [`fetch` API documentation](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html#fetch) for detailed usage.
+   
+   **Note**: To ensure accurate data computations, fetch descriptor data (using the query above) before employing methods like `getUtxos`, `getBalance`, or others described below. An error will alert you when attempting to derive data from descriptors that have not been previously fetched. This ensures you do not compute data based on incomplete information. If you are unsure whether a descriptor has been previously fetched or need to ensure that the data is up-to-date, use [`whenFetched`](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html#whenFetched):
    
    ```typescript
-   await discovery.fetch({ descriptor, network, gapLimit: 3 });
+   const fetchStatus = discovery.whenFetched({ descriptor, network });
+   if (fetchStatus === undefined) {
+     // The descriptor has not been fetched.
+   } else {
+     const secondsSinceFetched = (Date.now() - fetchStatus.timeFetched * 1000) / 1000;
+     if (secondsSinceFetched > SOME_TIME_THRESHOLD) {
+       // The descriptor data is outdated and may need to be fetched again.
+     }
+   }
    ```
-   
-   In the code snippet above, `descriptor` refers to a single descriptor expression in string format, which can be either ranged or fixed. A ranged descriptor allows for the optional specification of an `index` to isolate a specific output within the range. It's important to note that the `index` is only applicable to ranged descriptors. When an `index` is not specified, the discovery process fetches data for all outputs encompassed by the ranged descriptor. For operations that involve multiple descriptors, `descriptors` should be used with an array of strings.
-   
-    **Important**: Fetch descriptor data prior to using `getUtxos`, `getBalance`, or other methods described below. An error is thrown when deriving from unfetched descriptors to prevent unexpected results. Verify fetch completion with `whenFetched` if you're unsure whether a `fetch` has been performed on a descriptor:
     
-    ```typescript
-    const fetchStatus = discovery.whenFetched({ descriptor, network });
-    if (fetchStatus === undefined) { /* Descriptor data is not ready for use. */ }
-    ```
-    
-    If fetch status is verified or known, proceed directly to the data derivation methods:
+   If fetch status is verified or known, proceed directly to the data derivation methods:
 
    - **Deriving UTXOs**:
-     Use `getUtxos` to derive all unspent transaction outputs (UTXOs) from the fetched data:
+     Use [`getUtxos`](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html#getUtxos) to derive all unspent transaction outputs (UTXOs) from the fetched data:
      ```typescript
      const { utxos } = discovery.getUtxos({ descriptor, network });
      ```
    
    - **Calculating Balance**:
-     Use `getBalance` to calculate the total balance from the fetched data:
+     Use [`getBalance`](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html#getBalance) to calculate the total balance from the fetched data:
      ```typescript
      const { balance } = discovery.getBalance({ descriptor, network });
      ```
@@ -115,9 +121,10 @@ To get started, follow the steps below:
      ```typescript
      const index = discovery.getNextIndex({ descriptor, network });
      ```
+     See the [`getNextIndex` API documentation](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html#getNextIndex) for detailed usage.
    
    - **Identifying Descriptors by UTXO**:
-     Find the descriptor that corresponds to a specific UTXO:
+     Find the descriptor that corresponds to a specific UTXO using [`getDescriptor`](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html#getDescriptor):
      ```typescript
      const descriptorData = discovery.getDescriptor({ utxo, network });
      // Returns: { descriptor, index? }, with 'index' provided for ranged descriptors.
@@ -129,18 +136,10 @@ To get started, follow the steps below:
      ```typescript
      const history = discovery.getHistory({ descriptors, network });
      ```
-
-   - **Fetching Status and Timing**:
-     The `whenFetched` method offers insight into whether a descriptor's outputs are currently being fetched and the timestamp of the last successful fetch:
-     ```typescript
-     const fetchStatus = discovery.whenFetched({ descriptor, network });
-     // Returns: { fetching: boolean, timeFetched: number } or undefined if not fetched.
-     ```
-     This method is useful to avoid redundant network requests by checking if the data is already being fetched or has been recently updated. It works for both ranged and non-ranged descriptors and can be particularly helpful in optimizing data synchronization processes.
-
+     Refer to the [`getHistory` API](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html#getHistory) for the details.
    
    - **Fetching Standard Accounts**:
-     The `fetchStandardAccounts` method is a helper that automates the common task of retrieving or updating standard accounts (pkh, sh(wpkh), wpkh) associated with a master node, using data already fetched from the network. This method saves developers time and eliminates repetitive coding tasks.
+     The [`fetchStandardAccounts`](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html#fetchStandardAccounts) method is a helper that automates the common task of retrieving or updating standard accounts (pkh, sh(wpkh), wpkh) associated with a master node. This method saves developers time and eliminates repetitive coding tasks.
    
      Efficiently retrieve wallet accounts with:
      ```typescript
@@ -158,7 +157,7 @@ To get started, follow the steps below:
      ```
      Implement the `onAccountUsed` and `onAccountChecking` callbacks as needed for your app's functionality, such as UI updates or logging.
 
-   For a comprehensive rundown of all methods and their detailed usage, please consult [the API documentation](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html).
+   The methods listed above are only a part of all the `Discovery` class's functionality. For a complete overview of all available methods and their usage, refer to [the API documentation](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html).
 
 ## API Documentation
 

@@ -76,35 +76,35 @@ export function deriveDataFactory({
   );
   const deriveScriptPubKey = (
     networkId: NetworkId,
-    expression: Descriptor,
+    descriptor: Descriptor,
     index: DescriptorIndex
-  ) => deriveScriptPubKeyFactory(networkId)(expression)(index);
+  ) => deriveScriptPubKeyFactory(networkId)(descriptor)(index);
 
   const coreDeriveUtxosByOutput = (
     networkId: NetworkId,
-    expression: Descriptor,
+    descriptor: Descriptor,
     index: DescriptorIndex,
-    txInfoArray: Array<TxData>,
+    txDataArray: Array<TxData>,
     txStatus: TxStatus
   ): Array<Utxo> => {
-    const scriptPubKey = deriveScriptPubKey(networkId, expression, index);
+    const scriptPubKey = deriveScriptPubKey(networkId, descriptor, index);
 
     const allOutputs: Utxo[] = [];
     const spentOutputs: Utxo[] = [];
 
-    //Note that txInfoArray cannot be assumed to be in correct order. See:
+    //Note that txDataArray cannot be assumed to be in correct order. See:
     //https://github.com/Blockstream/esplora/issues/165#issuecomment-1584471718
     //TODO: but we should guarantee same order always so use txId as second order criteria?
-    for (const txInfo of txInfoArray) {
+    for (const txData of txDataArray) {
       if (
         txStatus === TxStatus.ALL ||
-        (txStatus === TxStatus.IRREVERSIBLE && txInfo.irreversible) ||
-        (txStatus === TxStatus.CONFIRMED && txInfo.blockHeight !== 0)
+        (txStatus === TxStatus.IRREVERSIBLE && txData.irreversible) ||
+        (txStatus === TxStatus.CONFIRMED && txData.blockHeight !== 0)
       ) {
-        const txHex = txInfo.txHex;
+        const txHex = txData.txHex;
         if (!txHex)
           throw new Error(
-            `txHex not yet retrieved for an element of ${expression}, ${index}`
+            `txHex not yet retrieved for an element of ${descriptor}, ${index}`
           );
         const tx = transactionFromHex(txHex);
         const txId = tx.getId();
@@ -142,13 +142,13 @@ export function deriveDataFactory({
       memoizee(
         (txStatus: TxStatus) =>
           memoizee(
-            (expression: Descriptor) =>
+            (descriptor: Descriptor) =>
               memoizee(
                 (index: DescriptorIndex) => {
                   // Create one function per each expression x index x txStatus
                   // coreDeriveUtxosByOutput shares all params wrt the parent
-                  // function except for additional param txInfoArray.
-                  // As soon as txInfoArray in coreDeriveUtxosByOutput changes,
+                  // function except for additional param txDataArray.
+                  // As soon as txDataArray in coreDeriveUtxosByOutput changes,
                   // it will resets its memory. However, it always returns the same
                   // reference if the resulting array is shallowy-equal:
                   const deriveUtxosByOutput = memoizeOneWithShallowArraysCheck(
@@ -161,17 +161,17 @@ export function deriveDataFactory({
                       txMap: Record<TxId, TxData>,
                       descriptorMap: Record<Descriptor, DescriptorData>
                     ) => {
-                      const txInfoArray = deriveTxDataArray(
+                      const txDataArray = deriveTxDataArray(
                         txMap,
                         descriptorMap,
-                        expression,
+                        descriptor,
                         index
                       );
                       const utxos = deriveUtxosByOutput(
                         networkId,
-                        expression,
+                        descriptor,
                         index,
-                        txInfoArray,
+                        txDataArray,
                         txStatus
                       );
                       if (lastUtxos && shallowEqualArrays(lastUtxos, utxos))
@@ -209,9 +209,9 @@ export function deriveDataFactory({
     txMap: Record<TxId, TxData>
   ): Array<TxData> =>
     txIds.map(txId => {
-      const txInfo = txMap[txId];
-      if (!txInfo) throw new Error(`txInfo not saved for ${txId}`);
-      return txInfo;
+      const txData = txMap[txId];
+      if (!txData) throw new Error(`txData not saved for ${txId}`);
+      return txData;
     });
 
   const deriveTxDataArrayFactory = memoizee(
@@ -225,8 +225,8 @@ export function deriveDataFactory({
             ) => {
               const range = deriveUsedRange(descriptorMap[descriptor]);
               const txIds = range[index]?.txIds || [];
-              const txInfoArray = coreDeriveTxDataArray(txIds, txMap);
-              return txInfoArray;
+              const txDataArray = coreDeriveTxDataArray(txIds, txMap);
+              return txDataArray;
             }
           );
         },
@@ -253,19 +253,19 @@ export function deriveDataFactory({
                   txMap: Record<TxId, TxData>,
                   descriptorMap: Record<Descriptor, DescriptorData>
                 ) => {
-                  const txInfoArray = deriveTxDataArray(
+                  const txDataArray = deriveTxDataArray(
                     txMap,
                     descriptorMap,
                     descriptor,
                     index
                   );
-                  return txInfoArray.filter(
-                    txInfo =>
+                  return txDataArray.filter(
+                    txData =>
                       txStatus === TxStatus.ALL ||
                       (txStatus === TxStatus.IRREVERSIBLE &&
-                        txInfo.irreversible) ||
+                        txData.irreversible) ||
                       (txStatus === TxStatus.CONFIRMED &&
-                        txInfo.blockHeight !== 0)
+                        txData.blockHeight !== 0)
                   );
                 }
               );
@@ -282,11 +282,11 @@ export function deriveDataFactory({
   const deriveHistoryByOutput = (
     txMap: Record<TxId, TxData>,
     descriptorMap: Record<Descriptor, DescriptorData>,
-    expression: Descriptor,
+    descriptor: Descriptor,
     index: DescriptorIndex,
     txStatus: TxStatus
   ) =>
-    deriveHistoryByOutputFactory(txStatus)(expression)(index)(
+    deriveHistoryByOutputFactory(txStatus)(descriptor)(index)(
       txMap,
       descriptorMap
     );
@@ -326,19 +326,25 @@ export function deriveDataFactory({
     //that belong to the same blockHeight
     //TODO: but we should guarantee same order always so use txId as second order criteria?
     return dedupedHistory.sort(
-      (txInfoA, txInfoB) => txInfoA.blockHeight - txInfoB.blockHeight
+      (txDataA, txDataB) => txDataA.blockHeight - txDataB.blockHeight
     );
   };
 
   const deriveHistoryFactory = memoizee(
     (txStatus: TxStatus) =>
       memoizee(
-        (expressions: Array<Descriptor> | Descriptor) => {
+        (descriptorOrDescriptors: Array<Descriptor> | Descriptor) => {
           return memoizeOneWithShallowArraysCheck(
             (
               txMap: Record<TxId, TxData>,
               descriptorMap: Record<Descriptor, DescriptorData>
-            ) => coreDeriveHistory(descriptorMap, txMap, expressions, txStatus)
+            ) =>
+              coreDeriveHistory(
+                descriptorMap,
+                txMap,
+                descriptorOrDescriptors,
+                txStatus
+              )
           );
         },
         { primitive: true, max: descriptorsCacheSize }
@@ -466,10 +472,10 @@ export function deriveDataFactory({
         throw new Error(`Undefined txId or vout for UTXO: ${utxo}`);
       const vout = parseInt(voutStr);
 
-      const txInfo = txMap[txId];
-      if (!txInfo)
-        throw new Error(`txInfo not saved for ${txId}, vout:${vout} - ${utxo}`);
-      const txHex = txInfo.txHex;
+      const txData = txMap[txId];
+      if (!txData)
+        throw new Error(`txData not saved for ${txId}, vout:${vout} - ${utxo}`);
+      const txHex = txData.txHex;
       if (!txHex) throw new Error(`txHex not yet retrieved for ${txId}`);
       const tx = transactionFromHex(txHex);
       const output = tx.outs[vout];
@@ -550,29 +556,27 @@ export function deriveDataFactory({
     discoveryData: DiscoveryData,
     networkId: NetworkId
   ): Array<Account> => {
-    const expressions = coreDeriveUsedDescriptors(discoveryData, networkId);
-    const accounts: Array<Account> = [];
-
+    const descriptors = coreDeriveUsedDescriptors(discoveryData, networkId);
     const network = getNetwork(networkId);
-    const expandedDescriptors = expressions.map(expression => ({
-      expression,
-      ...expand({ expression, network })
-    }));
-    for (const { expression, expansionMap } of expandedDescriptors) {
-      for (const key in expansionMap) {
-        const keyInfo = expansionMap[key];
-        if (!keyInfo)
-          throw new Error(
-            `keyInfo not defined for key ${key} in ${expression}`
-          );
+    const accountSet = new Set<Account>(); //Use Set to avoid duplicates
 
-        if (keyInfo.keyPath === '/0/*' || keyInfo.keyPath === '/1/*') {
-          const account = expression.replace(/\/1\/\*/g, '/0/*');
-          if (!accounts.includes(account)) accounts.push(account);
+    for (const descriptor of descriptors) {
+      const { expansionMap } = expand({ descriptor, network });
+      if (expansionMap)
+        for (const keyInfo of Object.values(expansionMap)) {
+          if (!keyInfo) {
+            throw new Error(
+              `Missing keyInfo in expansionMap for descriptor ${descriptor}`
+            );
+          }
+
+          if (keyInfo.keyPath === '/0/*' || keyInfo.keyPath === '/1/*') {
+            const account = descriptor.replace(/\/1\/\*/g, '/0/*');
+            accountSet.add(account);
+          }
         }
-      }
     }
-    return accounts.sort(); //So it's deterministic
+    return Array.from(accountSet).sort(); //sort the Array so it's deterministic
   };
 
   const deriveUsedAccountsFactory = memoizee(

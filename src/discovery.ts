@@ -300,13 +300,13 @@ export function DiscoveryFactory(
       const txHexRecords: Record<TxId, TxHex> = {};
       const networkId = getNetworkId(network);
       const networkData = this.#discoveryData[networkId];
-      for (const expression in networkData.descriptorMap) {
-        const range = networkData.descriptorMap[expression]?.range || [];
+      for (const descriptor in networkData.descriptorMap) {
+        const range = networkData.descriptorMap[descriptor]?.range || [];
         for (const index in range) {
           const txIds = range[index]?.txIds;
           if (!txIds)
             throw new Error(
-              `Error: cannot retrieve txs for nonexising scriptPubKey: ${networkId}, ${expression}, ${index}`
+              `Error: cannot retrieve txs for nonexising scriptPubKey: ${networkId}, ${descriptor}, ${index}`
             );
           for (const txId of txIds)
             if (!networkData.txMap[txId]?.txHex)

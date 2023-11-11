@@ -409,12 +409,14 @@ export function DiscoveryFactory(
         });
 
         let gap = 0;
-        index = index || 0; //If it was a passed argument use it; othewise start at zero
+        let indexEvaluated = index || 0; //If it was a passed argument use it; othewise start at zero
         const isRanged = descriptor.indexOf('*') !== -1;
-        while (isRanged ? gap < gapLimit : index < 1 /*once if unranged*/) {
+        while (
+          isRanged ? gap < gapLimit : indexEvaluated < 1 /*once if unranged*/
+        ) {
           const used = await this.#fetchOutput({
             descriptor,
-            ...(isRanged ? { index } : {})
+            ...(isRanged ? { index: indexEvaluated } : {})
           });
 
           if (used) {
@@ -424,7 +426,7 @@ export function DiscoveryFactory(
 
           if (used && next && !nextPromise) nextPromise = next();
 
-          index++;
+          indexEvaluated++;
 
           if (used && onUsed && usedOutputNotified === false) {
             onUsed(descriptorOrDescriptors);

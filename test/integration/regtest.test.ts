@@ -12,6 +12,7 @@
 //TODO: test an unrangedDescriptor as above without value. It should not appear???
 //TODO: tests with used both for unrangedDescriptor and ranged and using pubkey instad of bip32, this should be detected
 //TODO: test the rest of methods
+import { vaultsTests } from './vaults';
 import { RegtestUtils } from 'regtest-client';
 import { networks } from 'bitcoinjs-lib';
 import * as secp256k1 from '@bitcoinerlab/secp256k1';
@@ -413,3 +414,5 @@ describe('Discovery on regtest', () => {
   //  await.discoverer.discovery!.fetch({
   //});
 });
+
+vaultsTests();

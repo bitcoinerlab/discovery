@@ -16,8 +16,10 @@ import { scriptExpressions } from '@bitcoinerlab/descriptors';
 import { Network, crypto, Transaction } from 'bitcoinjs-lib';
 import type { BIP32Interface } from 'bip32';
 import type { Explorer } from '@bitcoinerlab/explorer';
+import cloneDeep from 'lodash.clonedeep';
 
 import {
+  DATA_MODEL_VERSION,
   OutputCriteria,
   NetworkId,
   TxId,
@@ -74,7 +76,8 @@ export function DiscoveryFactory(
     constructor(
       {
         descriptorsCacheSize = 1000,
-        outputsPerDescriptorCacheSize = 10000
+        outputsPerDescriptorCacheSize = 10000,
+        imported
       }: {
         /**
          * Cache size limit for descriptor expressions.
@@ -91,7 +94,7 @@ export function DiscoveryFactory(
          * and immutability. Set to 0 for unbounded caches.
          * @defaultValue 1000
          */
-        descriptorsCacheSize: number;
+        descriptorsCacheSize?: number;
         /**
          * Cache size limit for outputs per descriptor, related to the number of outputs
          * in ranged descriptor expressions. Similar to the `descriptorsCacheSize`,
@@ -102,21 +105,45 @@ export function DiscoveryFactory(
          * Set to 0 for unbounded caches.
          * @defaultValue 10000
          */
-        outputsPerDescriptorCacheSize: number;
+        outputsPerDescriptorCacheSize?: number;
+        /**
+         * Optional parameter used to initialize the Discovery instance with
+         * previously exported data with
+         * {@link _Internal_.Discovery.export | `export()`}. This allows for the
+         * continuation of a previous discovery process. The `imported` object
+         * should contain `discoveryData` and a `version` string. The
+         * `discoveryData` is deeply cloned upon import to ensure that the
+         * internal state of the Discovery instance is isolated from
+         * external changes. The `version` is used to verify that the imported
+         * data model is compatible with the current version of the Discovery
+         * class.
+         */
+        imported?: {
+          discoveryData: DiscoveryData;
+          version: string;
+        };
       } = {
         descriptorsCacheSize: 1000,
         outputsPerDescriptorCacheSize: 10000
       }
     ) {
-      this.#discoveryData = {} as DiscoveryData;
-      for (const networkId of Object.values(NetworkId)) {
-        const txMap: Record<TxId, TxData> = {};
-        const descriptorMap: Record<Descriptor, DescriptorData> = {};
-        const networkData: NetworkData = {
-          descriptorMap,
-          txMap
-        };
-        this.#discoveryData[networkId] = networkData;
+      if (imported) {
+        if (imported.version !== DATA_MODEL_VERSION)
+          throw new Error(
+            `Cannot import data model. ${imported.version} != ${DATA_MODEL_VERSION}`
+          );
+        this.#discoveryData = cloneDeep(imported.discoveryData);
+      } else {
+        this.#discoveryData = {} as DiscoveryData;
+        for (const networkId of Object.values(NetworkId)) {
+          const txMap: Record<TxId, TxData> = {};
+          const descriptorMap: Record<Descriptor, DescriptorData> = {};
+          const networkData: NetworkData = {
+            descriptorMap,
+            txMap
+          };
+          this.#discoveryData[networkId] = networkData;
+        }
       }
       this.#derivers = deriveDataFactory({
         descriptorsCacheSize,
@@ -409,28 +436,42 @@ export function DiscoveryFactory(
         });
 
         let gap = 0;
+        let outputsFetched = 0;
         let indexEvaluated = index || 0; //If it was a passed argument use it; othewise start at zero
         const isRanged = descriptor.indexOf('*') !== -1;
-        while (
-          isRanged ? gap < gapLimit : indexEvaluated < 1 /*once if unranged*/
-        ) {
-          const used = await this.#fetchOutput({
-            descriptor,
-            ...(isRanged ? { index: indexEvaluated } : {})
-          });
+        const isGapSearch = isRanged && typeof index === 'undefined';
 
-          if (used) {
-            usedOutput = true;
-            gap = 0;
-          } else gap++;
+        while (isGapSearch ? gap < gapLimit : outputsFetched < 1) {
+          //batch-request the remaining outputs until gapLimit:
+          const outputsToFetch = isGapSearch ? gapLimit - gap : 1;
+          const fetchPromises = [];
+          for (let i = 0; i < outputsToFetch; i++) {
+            fetchPromises.push(
+              this.#fetchOutput({
+                descriptor,
+                ...(isRanged ? { index: indexEvaluated + i } : {})
+              })
+            );
+          }
 
-          if (used && next && !nextPromise) nextPromise = next();
+          //Promise.all keeps the order in results
+          const results = await Promise.all(fetchPromises);
 
-          indexEvaluated++;
-
-          if (used && onUsed && usedOutputNotified === false) {
-            onUsed(descriptorOrDescriptors);
-            usedOutputNotified = true;
+          //Now, evaluate the gap from the batch of results
+          for (const used of results) {
+            if (used) {
+              usedOutput = true;
+              gap = 0;
+              if (next && !nextPromise) nextPromise = next();
+              if (onUsed && usedOutputNotified === false) {
+                onUsed(descriptor);
+                usedOutputNotified = true;
+              }
+            } else {
+              gap++;
+            }
+            indexEvaluated++;
+            outputsFetched++;
           }
         }
         this.#discoveryData = produce(this.#discoveryData, discoveryData => {
@@ -1031,6 +1072,40 @@ export function DiscoveryFactory(
      */
     getExplorer(): Explorer {
       return explorer;
+    }
+
+    /**
+     * Exports the current state of the Discovery instance.
+     * This method is used to serialize the state of the Discovery instance so
+     * that it can be saved and potentially re-imported later using the
+     * `imported` parameter in the constructor.
+     *
+     * The exported data includes a version string and a deep clone of the
+     * internal discovery data. The deep cloning process ensures that the
+     * exported data is a snapshot of the internal state, isolated from future
+     * changes to the Discovery instance. This isolation maintains the integrity
+     * and immutability of the exported data.
+     *
+     * The inclusion of a version string in the exported data allows for
+     * compatibility checks when re-importing the data. This check ensures that
+     * the data model of the imported data is compatible with the current
+     * version of the Discovery class.
+     *
+     * The exported data is guaranteed to be serializable, allowing it to be
+     * safely stored or transmitted. It can be serialized using JSON.stringify
+     * or other serialization methods, such as structured serialization
+     * (https://html.spec.whatwg.org/multipage/structured-data.html#structuredserializeinternal).
+     * This feature ensures that the data can be serialized and deserialized
+     * without loss of integrity, facilitating data persistence
+     * and transfer across different sessions or environments.
+     *
+     * @returns An object containing the version string and the serialized discovery data.
+     */
+    export() {
+      return {
+        version: DATA_MODEL_VERSION,
+        discoveryData: cloneDeep(this.#discoveryData)
+      };
     }
   }
   return { Discovery };

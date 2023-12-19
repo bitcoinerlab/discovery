@@ -1,3 +1,9 @@
+/**
+ * Versions the structure of the data model. This variable should to be
+ * changed when any of the types below change.
+ */
+export const DATA_MODEL_VERSION = 'V1';
+
 // Copyright (c) 2023 Jose-Luis Landabaso - https://bitcoinerlab.com
 // Distributed under the MIT software license
 //

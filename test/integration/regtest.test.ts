@@ -199,6 +199,7 @@ describe('Discovery on regtest', () => {
             ).rejects.toThrow(error);
           });
         } else {
+          const { Discovery } = DiscoveryFactory(discoverer.explorer, network);
           test(`Discover ${descriptor} using ${discoverer.name} after ${totalMined} blocks`, async () => {
             await expect(
               discoverer.discovery!.fetch({
@@ -328,6 +329,12 @@ describe('Discovery on regtest', () => {
               }));
             expect(balanceDefault).toEqual(totalBalance);
             expect(utxosDefault.length).toEqual(totalUtxosCount);
+            //import & export
+            expect(
+              new Discovery({
+                imported: discoverer.discovery!.export()
+              }).getUtxosAndBalance({ descriptor })
+            ).toEqual({ balance: balanceDefault, utxos: utxosDefault });
           });
           test(`getUtxosAndBalance ALL for ${descriptor} using ${discoverer.name} after ${totalMined} blocks`, () => {
             const { balance: balanceAll, utxos: utxosAll } =
@@ -338,6 +345,12 @@ describe('Discovery on regtest', () => {
             expect(balanceAll).toEqual(totalBalance);
             expect(balanceAll).toEqual(balanceDefault);
             expect(utxosAll.length).toEqual(totalUtxosCount);
+            //import & export
+            expect(
+              new Discovery({
+                imported: discoverer.discovery!.export()
+              }).getUtxosAndBalance({ descriptor, txStatus: TxStatus.ALL })
+            ).toEqual({ balance: balanceAll, utxos: utxosAll });
           });
           test(`getUtxosAndBalance CONFIRMED for ${descriptor} using ${discoverer.name} after ${totalMined} blocks`, () => {
             const { balance: balanceConfirmed, utxos: utxosConfirmed } =
@@ -349,6 +362,15 @@ describe('Discovery on regtest', () => {
             expect(utxosConfirmed.length).toEqual(
               totalMined > 0 ? totalUtxosCount : 0
             );
+            //import & export
+            expect(
+              new Discovery({
+                imported: discoverer.discovery!.export()
+              }).getUtxosAndBalance({
+                descriptor,
+                txStatus: TxStatus.CONFIRMED
+              })
+            ).toEqual({ balance: balanceConfirmed, utxos: utxosConfirmed });
           });
           test(`getUtxosAndBalance IRREVERSIBLE for ${descriptor} using ${discoverer.name} after ${totalMined} blocks`, () => {
             const { balance: balanceIrreversible, utxos: utxosIrreversible } =
@@ -362,6 +384,18 @@ describe('Discovery on regtest', () => {
             expect(utxosIrreversible.length).toEqual(
               totalMined >= irrevConfThresh ? totalUtxosCount : 0
             );
+            //import & export
+            expect(
+              new Discovery({
+                imported: discoverer.discovery!.export()
+              }).getUtxosAndBalance({
+                descriptor,
+                txStatus: TxStatus.IRREVERSIBLE
+              })
+            ).toEqual({
+              balance: balanceIrreversible,
+              utxos: utxosIrreversible
+            });
           });
         }
       }

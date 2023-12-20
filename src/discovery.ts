@@ -239,6 +239,7 @@ export function DiscoveryFactory(
         throw new Error(`Pass index for ranged descriptors`);
       const internalIndex = typeof index === 'number' ? index : 'non-ranged';
       const networkId = getNetworkId(network);
+      //console.log(`Fetching ${descriptor}, ${internalIndex}`);
       const scriptPubKey = this.#derivers.deriveScriptPubKey(
         networkId,
         canonicalize(descriptor, network) as string,
@@ -302,31 +303,42 @@ export function DiscoveryFactory(
      * @returns Resolves when all the transactions have been fetched and stored in discoveryData.
      */
     async #fetchTxs() {
-      const txHexRecords: Record<TxId, TxHex> = {};
       const networkId = getNetworkId(network);
       const networkData = this.#discoveryData[networkId];
+
+      const fetchTxPromises = [];
+      const txIdsToFetch = new Set<TxId>();
+
       for (const descriptor in networkData.descriptorMap) {
         const range = networkData.descriptorMap[descriptor]?.range || [];
         for (const index in range) {
           const txIds = range[index]?.txIds;
           if (!txIds)
             throw new Error(
-              `Error: cannot retrieve txs for nonexising scriptPubKey: ${networkId}, ${descriptor}, ${index}`
+              `Error: cannot retrieve txs for nonexisting scriptPubKey: ${networkId}, ${descriptor}, ${index}`
             );
-          for (const txId of txIds)
-            if (!networkData.txMap[txId]?.txHex)
-              txHexRecords[txId] = await explorer.fetchTx(txId);
+
+          for (const txId of txIds) {
+            if (!networkData.txMap[txId]?.txHex && !txIdsToFetch.has(txId)) {
+              txIdsToFetch.add(txId);
+              fetchTxPromises.push(
+                explorer.fetchTx(txId).then(txHex => ({ txId, txHex }))
+              );
+            }
+          }
         }
       }
-      if (Object.keys(txHexRecords).length) {
+
+      const txHexResults = await Promise.all(fetchTxPromises);
+
+      if (txHexResults.length) {
         this.#discoveryData = produce(this.#discoveryData, discoveryData => {
-          for (const txId in txHexRecords) {
-            const txHex = txHexRecords[txId];
+          txHexResults.forEach(({ txId, txHex }) => {
             if (!txHex) throw new Error(`txHex not retrieved for ${txId}`);
             const txData = discoveryData[networkId].txMap[txId];
             if (!txData) throw new Error(`txData does not exist for ${txId}`);
             txData.txHex = txHex;
-          }
+          });
         });
       }
     }
@@ -412,7 +424,7 @@ export function DiscoveryFactory(
         throw new Error(`Don't pass index`);
       if (onChecking) onChecking(descriptorOrDescriptors);
       const canonicalInput = canonicalize(descriptorOrDescriptors, network);
-      let nextPromise;
+      let nextPromise: Promise<void> | undefined = undefined;
       let usedOutput = false;
       let usedOutputNotified = false;
 
@@ -420,7 +432,8 @@ export function DiscoveryFactory(
         ? canonicalInput
         : [canonicalInput];
       const networkId = getNetworkId(network);
-      for (const descriptor of descriptorArray) {
+
+      const descriptorFetchPromises = descriptorArray.map(async descriptor => {
         this.#discoveryData = produce(this.#discoveryData, discoveryData => {
           const descriptorInfo =
             discoveryData[networkId].descriptorMap[descriptor];
@@ -464,7 +477,7 @@ export function DiscoveryFactory(
               gap = 0;
               if (next && !nextPromise) nextPromise = next();
               if (onUsed && usedOutputNotified === false) {
-                onUsed(descriptor);
+                onUsed(descriptorOrDescriptors);
                 usedOutputNotified = true;
               }
             } else {
@@ -484,7 +497,8 @@ export function DiscoveryFactory(
           descriptorInfo.fetching = false;
           descriptorInfo.timeFetched = now();
         });
-      }
+      });
+      await Promise.all(descriptorFetchPromises);
 
       const promises = [];
       if (usedOutput) promises.push(this.#fetchTxs());

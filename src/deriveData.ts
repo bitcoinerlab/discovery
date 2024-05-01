@@ -31,7 +31,7 @@ export function canonicalize(
   const descriptorArray = Array.isArray(descriptorOrDescriptors)
     ? descriptorOrDescriptors
     : [descriptorOrDescriptors];
-  const canonicalDescriptors: Array<Descriptor> | Descriptor = [];
+  const canonicalDescriptors: Array<Descriptor> = [];
   descriptorArray.forEach(descriptor => {
     const canonicalDescriptor = expand({
       descriptor,
@@ -40,8 +40,15 @@ export function canonicalize(
     if (descriptor !== canonicalDescriptor) isDifferent = true;
     canonicalDescriptors.push(canonicalDescriptor);
   });
-  if (isDifferent) return canonicalDescriptors;
-  else return descriptorOrDescriptors;
+  if (Array.isArray(descriptorOrDescriptors)) {
+    if (isDifferent) return canonicalDescriptors;
+    else return descriptorOrDescriptors;
+  } else {
+    const canonicalDescriptor = canonicalDescriptors[0];
+    if (!canonicalDescriptor)
+      throw new Error(`Could not canonicalize ${descriptorOrDescriptors}`);
+    return canonicalDescriptor;
+  }
 }
 
 export function deriveDataFactory({

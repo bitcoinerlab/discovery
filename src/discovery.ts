@@ -242,7 +242,7 @@ export function DiscoveryFactory(
       //console.log(`Fetching ${descriptor}, ${internalIndex}`);
       const scriptPubKey = this.#derivers.deriveScriptPubKey(
         networkId,
-        canonicalize(descriptor, network) as string,
+        descriptor,
         internalIndex
       );
       //https://electrumx.readthedocs.io/en/latest/protocol-basics.html#script-hashes
@@ -538,7 +538,9 @@ export function DiscoveryFactory(
         throw new Error(`Pass index (optionally) only for ranged descriptors`);
       const networkId = getNetworkId(network);
       const descriptorData =
-        this.#discoveryData[networkId].descriptorMap[descriptor];
+        this.#discoveryData[networkId].descriptorMap[
+          canonicalize(descriptor, network) as Descriptor
+        ];
       if (!descriptorData) return undefined;
       if (typeof index !== 'number') {
         return {
@@ -558,7 +560,7 @@ export function DiscoveryFactory(
     }
 
     /**
-     * Makes sure that data was retrieved before trying to derive from it
+     * Makes sure that data was retrieved before trying to derive from it.
      */
     #ensureFetched({
       descriptor,
@@ -801,7 +803,7 @@ export function DiscoveryFactory(
           networkId,
           txMap,
           descriptorMap,
-          descriptorOrDescriptors as string,
+          descriptorOrDescriptors as Descriptor,
           internalIndex,
           txStatus
         );
@@ -869,7 +871,7 @@ export function DiscoveryFactory(
         this.#derivers.deriveHistoryByOutput(
           txMap,
           descriptorMap,
-          descriptor,
+          canonicalize(descriptor, network) as Descriptor,
           index,
           txStatus
         ).length
@@ -929,7 +931,7 @@ export function DiscoveryFactory(
         return this.#derivers.deriveHistoryByOutput(
           txMap,
           descriptorMap,
-          descriptorOrDescriptors as string,
+          descriptorOrDescriptors as Descriptor,
           internalIndex,
           txStatus
         );

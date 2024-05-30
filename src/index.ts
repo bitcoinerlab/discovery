@@ -2,4 +2,11 @@
 // Distributed under the MIT software license
 import { DiscoveryFactory, DiscoveryInstance } from './discovery';
 export { DiscoveryFactory, DiscoveryInstance };
-export { OutputCriteria, TxStatus, Account, Utxo } from './types';
+export {
+  OutputCriteria,
+  TxStatus,
+  Account,
+  Utxo,
+  Stxo,
+  TxAttribution
+} from './types';

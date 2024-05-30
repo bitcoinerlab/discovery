@@ -23,7 +23,6 @@ import {
   OutputCriteria,
   NetworkId,
   TxId,
-  TxHex,
   TxData,
   OutputData,
   Descriptor,
@@ -33,7 +32,10 @@ import {
   NetworkData,
   DiscoveryData,
   Utxo,
-  TxStatus
+  TxStatus,
+  Stxo,
+  TxHex,
+  TxAttribution
 } from './types';
 
 const now = () => Math.floor(Date.now() / 1000);
@@ -249,11 +251,6 @@ export function DiscoveryFactory(
       const scriptHash = Buffer.from(crypto.sha256(scriptPubKey))
         .reverse()
         .toString('hex');
-      type TxHistory = {
-        txId: string;
-        blockHeight: number;
-        irreversible: boolean;
-      };
       this.#discoveryData = produce(this.#discoveryData, discoveryData => {
         const range = discoveryData[networkId].descriptorMap[descriptor]?.range;
         if (!range) throw new Error(`unset range ${networkId}:${descriptor}`);
@@ -264,10 +261,13 @@ export function DiscoveryFactory(
         } else outputData.fetching = true;
       });
 
-      const txHistoryArray: Array<TxHistory> = await explorer.fetchTxHistory({
+      const txHistoryArray: Array<{
+        txId: string;
+        blockHeight: number;
+        irreversible: boolean;
+      }> = await explorer.fetchTxHistory({
         scriptHash
       });
-      //console.log('TRACE', { scriptHash, txHistoryArray });
 
       this.#discoveryData = produce(this.#discoveryData, discoveryData => {
         // Update txMap
@@ -602,7 +602,10 @@ export function DiscoveryFactory(
         });
       else if (
         descriptor &&
-        !this.whenFetched({ descriptor, ...(index ? { index } : {}) })
+        !this.whenFetched({
+          descriptor,
+          ...(index !== undefined ? { index } : {})
+        })
       )
         throw new Error(
           `Cannot derive data from ${descriptor}/${index} since it has not been previously fetched`
@@ -751,6 +754,8 @@ export function DiscoveryFactory(
     /**
      * Retrieves unspent transaction outputs (UTXOs) and balance associated with
      * one or more descriptor expressions and transaction status.
+     * In addition it also retrieves spent transaction outputs (STXOS) which correspond
+     * to previous UTXOs that have been spent.
      *
      * This method is useful for accessing the available funds for specific
      * descriptor expressions in the wallet, considering the transaction status
@@ -766,17 +771,23 @@ export function DiscoveryFactory(
      * @param outputCriteria
      * @returns An object containing the UTXOs associated with the
      * scriptPubKeys and the total balance of these UTXOs.
+     * It also returns previous UTXOs that had been
+     * eventually spent as stxos: Array<Stxo>
      */
     getUtxosAndBalance({
       descriptor,
       index,
       descriptors,
       txStatus = TxStatus.ALL
-    }: OutputCriteria): { utxos: Array<Utxo>; balance: number } {
+    }: OutputCriteria): {
+      utxos: Array<Utxo>;
+      stxos: Array<Stxo>;
+      balance: number;
+    } {
       this.#ensureFetched({
         ...(descriptor ? { descriptor } : {}),
         ...(descriptors ? { descriptors } : {}),
-        ...(index ? { index } : {})
+        ...(index !== undefined ? { index } : {})
       });
       if ((descriptor && descriptors) || !(descriptor || descriptors))
         throw new Error(`Pass descriptor or descriptors`);
@@ -869,6 +880,8 @@ export function DiscoveryFactory(
       let index = 0;
       while (
         this.#derivers.deriveHistoryByOutput(
+          false,
+          networkId,
           txMap,
           descriptorMap,
           canonicalize(descriptor, network) as Descriptor,
@@ -883,26 +896,54 @@ export function DiscoveryFactory(
     /**
      * Retrieves the transaction history for one or more descriptor expressions.
      *
-     * This method is useful for accessing transaction records associated with one or more
-     * descriptor expressions and transaction status.
+     * This method accesses transaction records associated with descriptor expressions
+     * and transaction status.
      *
-     * The return value is computed based on the current state of discoveryData. The method
-     * uses memoization to maintain the same object reference for the returned result, given
-     * the same input parameters, as long as the corresponding transaction records in
-     * discoveryData haven't changed.
+     * When `withAttributions` is `false`, it returns an array of historical transactions
+     * (`Array<TxData>`). See {@link TxData TxData}.
      *
-     * This can be useful in environments such as React where preserving object identity can
-     * prevent unnecessary re-renders.
+     * To determine if each transaction corresponds to a sent/received transaction, set
+     * `withAttributions` to `true`.
      *
-     * @param outputCriteria
-     * @returns An array containing transaction info associated with the descriptor expressions.
+     * When `withAttributions` is `true`, this function returns an array of
+     * {@link TxAttribution TxAttribution} elements.
+     *
+     * `TxAttribution` identifies the owner of the previous output for each input and
+     * the owner of the output for each transaction.
+     *
+     * This is useful in wallet applications to specify whether inputs are from owned
+     * outputs (e.g., change from a previous transaction) or from third parties. It
+     * also specifies if outputs are destined to third parties or are internal change.
+     * This helps wallet apps show transaction history with "Sent" or "Received" labels,
+     * considering only transactions with third parties.
+     *
+     * See {@link TxAttribution TxAttribution} for a complete list of items returned per
+     * transaction.
+     *
+     * The return value is computed based on the current state of `discoveryData`. The
+     * method uses memoization to maintain the same object reference for the returned
+     * result, given the same input parameters, as long as the corresponding transaction
+     * records in `discoveryData` haven't changed.
+     *
+     * This can be useful in environments such as React, where preserving object identity
+     * can prevent unnecessary re-renders.
+     *
+     * @param outputCriteria - Criteria for selecting transaction outputs, including descriptor
+     * expressions, transaction status, and whether to include attributions.
+     * @param withAttributions - Whether to include attributions in the returned data.
+     * @returns An array containing transaction information associated with the descriptor
+     * expressions.
      */
-    getHistory({
-      descriptor,
-      index,
-      descriptors,
-      txStatus = TxStatus.ALL
-    }: OutputCriteria): Array<TxData> {
+
+    getHistory(
+      {
+        descriptor,
+        index,
+        descriptors,
+        txStatus = TxStatus.ALL
+      }: OutputCriteria,
+      withAttributions = false
+    ): Array<TxData> | Array<TxAttribution> {
       if ((descriptor && descriptors) || !(descriptor || descriptors))
         throw new Error(`Pass descriptor or descriptors`);
       if (
@@ -917,18 +958,21 @@ export function DiscoveryFactory(
       this.#ensureFetched({
         ...(descriptor ? { descriptor } : {}),
         ...(descriptors ? { descriptors } : {}),
-        ...(index ? { index } : {})
+        ...(index !== undefined ? { index } : {})
       });
       const networkId = getNetworkId(network);
       const descriptorMap = this.#discoveryData[networkId].descriptorMap;
       const txMap = this.#discoveryData[networkId].txMap;
 
+      let txDataArray: Array<TxData> = [];
       if (
         descriptor &&
         (typeof index !== 'undefined' || !descriptor.includes('*'))
       ) {
         const internalIndex = typeof index === 'number' ? index : 'non-ranged';
-        return this.#derivers.deriveHistoryByOutput(
+        txDataArray = this.#derivers.deriveHistoryByOutput(
+          withAttributions,
+          networkId,
           txMap,
           descriptorMap,
           descriptorOrDescriptors as Descriptor,
@@ -936,12 +980,16 @@ export function DiscoveryFactory(
           txStatus
         );
       } else
-        return this.#derivers.deriveHistory(
+        txDataArray = this.#derivers.deriveHistory(
+          withAttributions,
+          networkId,
           txMap,
           descriptorMap,
           descriptorOrDescriptors,
           txStatus
         );
+
+      return txDataArray;
     }
 
     /**
@@ -974,7 +1022,10 @@ export function DiscoveryFactory(
       txId = utxo ? utxo.split(':')[0] : txId;
       if (!txId) throw new Error(`Error: invalid input`);
       const txHex = this.#discoveryData[networkId].txMap[txId]?.txHex;
-      if (!txHex) throw new Error(`Error: txHex not found`);
+      if (!txHex)
+        throw new Error(
+          `Error: txHex not found for ${txId} while getting TxHex`
+        );
       return txHex;
     }
 
@@ -1014,33 +1065,49 @@ export function DiscoveryFactory(
     }
 
     /**
-     * Given an unspent tx output, this function retrieves its descriptor.
+     * Given an unspent tx output, this function retrieves its descriptor (if still unspent).
+     * Alternatively, pass a txo (any transaction output, which may have been
+     * spent already or not) and this function will also retrieve its descriptor.
+     * txo can be in any of these formats: `${txId}:${vout}` or
+     * using its extended form: `${txId}:${vout}:${recipientTxId}:${recipientVin}`
+     *
+     * This query can be quite slow so use wisely.
+     *
+     * Returns the descriptor (and index if ranged) or undefined if not found.
      */
     getDescriptor({
-      utxo
+      utxo,
+      txo
     }: {
       /**
        * The UTXO.
        */
-      utxo: Utxo;
+      utxo?: Utxo;
+      txo?: Utxo;
     }):
       | {
           descriptor: Descriptor;
           index?: number;
         }
       | undefined {
+      if (utxo && txo) throw new Error('Pass either txo or utxo, not both');
+      if (utxo) txo = utxo;
       const networkId = getNetworkId(network);
-      const split = utxo.split(':');
-      if (split.length !== 2) throw new Error(`Error: invalid utxo: ${utxo}`);
+      if (!txo) throw new Error('Pass either txo or utxo');
+      const split = txo.split(':');
+      if (split.length !== 2) throw new Error(`Error: invalid txo: ${txo}`);
       const txId = split[0];
-      if (!txId) throw new Error(`Error: invalid utxo: ${utxo}`);
+      if (!txId) throw new Error(`Error: invalid txo: ${txo}`);
       const strVout = split[1];
-      if (!strVout) throw new Error(`Error: invalid utxo: ${utxo}`);
+      if (!strVout) throw new Error(`Error: invalid txo: ${txo}`);
       const vout = parseInt(strVout);
       if (vout.toString() !== strVout)
-        throw new Error(`Error: invalid utxo: ${utxo}`);
-      const txHex = this.#discoveryData[networkId].txMap[txId]?.txHex;
-      if (!txHex) throw new Error(`Error: txHex not found for ${utxo}`);
+        throw new Error(`Error: invalid txo: ${txo}`);
+      //const txHex = this.#discoveryData[networkId].txMap[txId]?.txHex;
+      //if (!txHex)
+      //  throw new Error(
+      //    `Error: txHex not found for ${txo} while looking for its descriptor.`
+      //  );
 
       const descriptorMap = this.#discoveryData[networkId].descriptorMap;
       const descriptors = this.#derivers.deriveUsedDescriptors(
@@ -1061,20 +1128,47 @@ export function DiscoveryFactory(
         Object.keys(range).forEach(indexStr => {
           const isRanged = indexStr !== 'non-ranged';
           const index = isRanged && Number(indexStr);
-          if (
-            this.getUtxosAndBalance({
-              descriptor,
-              ...(isRanged ? { index: Number(indexStr) } : {})
-            }).utxos.includes(utxo)
-          ) {
-            if (output)
-              throw new Error(
-                `output {${descriptor}, ${index}} is already represented by {${output.descriptor}, ${output.index}} .`
-              );
-            output = {
-              descriptor,
-              ...(isRanged ? { index: Number(indexStr) } : {})
-            };
+
+          if (!txo) throw new Error('txo not defined');
+          const { utxos, stxos } = this.getUtxosAndBalance({
+            descriptor,
+            ...(isRanged ? { index: Number(indexStr) } : {})
+          });
+          if (utxo) {
+            if (utxos.includes(txo)) {
+              if (output)
+                throw new Error(
+                  `output {${descriptor}, ${index}} is already represented by {${output.descriptor}, ${output.index}} .`
+                );
+              output = {
+                descriptor,
+                ...(isRanged ? { index: Number(indexStr) } : {})
+              };
+            }
+          } else {
+            //Descriptor txos (Unspent txos and Spent txos). Note that
+            //stxos have this format: `${txId}:${vout}:${recipientTxId}:${recipientVin}`
+            //so normalize to Utxo format:
+            const txoSet = new Set([
+              ...utxos,
+              ...stxos.map(stxo => {
+                const [txId, voutStr] = stxo.split(':');
+                if (txId === undefined || voutStr === undefined) {
+                  throw new Error(`Undefined txId or vout for STXO: ${stxo}`);
+                }
+                return `${txId}:${voutStr}`;
+              })
+            ]);
+            if (txoSet.has(txo)) {
+              if (output)
+                throw new Error(
+                  `output {${descriptor}, ${index}} is already represented by {${output.descriptor}, ${output.index}} .`
+                );
+              output = {
+                descriptor,
+                ...(isRanged ? { index: Number(indexStr) } : {})
+              };
+            }
           }
         });
       });

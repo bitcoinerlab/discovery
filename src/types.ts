@@ -96,6 +96,14 @@ export type TxId = string;
 export type Utxo = string; //`${txId}:${vout}`
 
 /**
+ * Type definition for Spent Transaction Output. Format:
+ * `${txId}:${vout}:${recipientTxId}:${recipientVin}`,
+ * that is, a previous Utxo ${txId}:${vout} was eventually spent in this tx:
+ * ${recipientTxId}:${recipientVin}
+ */
+export type Stxo = string; //`${txId}:${vout}:${recipientTxId}:${recipientVin}`
+
+/**
  * Type definition for Transaction Information.
  */
 export type TxData = {
@@ -111,6 +119,67 @@ export type TxData = {
    * The transaction hex, optional.
    */
   txHex?: TxHex;
+};
+
+/**
+ * Represents the attribution details of a transaction.
+ *
+ * `TxAttribution` is used to mark the owner of the inputs and outputs for each
+ * transaction.
+ *
+ * This can be used in wallet apps to specify whether inputs are from owned
+ * outputs (e.g., change in a previous transaction) or come from third parties.
+ * Similarly, it specifies when outputs are either destined to third parties or
+ * correspond to internal change. This is useful because wallet apps typically
+ * show transaction history with "Sent" or "Received" labels, considering only
+ * ins/outs from third parties.
+ *
+ * - `ownedPrevTxo/ownedTxo` indicates the ownership of the previous output/next
+ *   output:
+ *   - `false` if the previous/next output cannot be described by one of the
+ *     owned descriptors.
+ *   - An object containing the descriptor and optional index (for ranged
+ *     descriptors).
+ * - `value` is the amount received/sent in this input/output. `value` will not
+ *   be set in inputs when inputs are not owned.
+ *
+ * - `netReceived` indicates the net amount received by the controlled
+ *   descriptors in this transaction. If > 0, it means funds were received;
+ *   otherwise, funds were sent.
+ *
+ * - `type`:
+ *   - `CONSOLIDATED`: ALL inputs and outputs are from/to owned descriptors.
+ *   - `RECEIVED_AND_SENT` if:
+ *     - SOME outputs are NOT owned and SOME inputs are owned, and
+ *     - SOME outputs are owned and SOME inputs are NOT owned.
+ *     This is an edge case that typically won't occur in wallets.
+ *   - `SENT`:
+ *     - if there are SOME outputs NOT owned and SOME inputs are owned.
+ *     - not `RECEIVED_AND_SENT`.
+ *   - `RECEIVED`:
+ *     - if there are SOME outputs owned and SOME inputs are NOT owned.
+ *     - not `RECEIVED_AND_SENT`.
+ *
+ * Tip: You can use `getDescriptor({txo: owned})` to see what descriptor
+ * corresponds to `getDescriptor({txo: ins[x].ownedPrevTxo})` or
+ * `getDescriptor({txo: outs[y].ownedTxo})`.
+ */
+
+export type TxAttribution = {
+  txId: TxId;
+  blockHeight: number;
+  irreversible: boolean;
+  ins: Array<{
+    //none are set if the prev output cannot be described by one of the owned descriptors
+    ownedPrevTxo: Utxo | false; //the prev output where funds come from in this input
+    value?: number; //amount received
+  }>;
+  outs: Array<{
+    ownedTxo: Utxo | false; //the owned output where funds are sent in this tx output. Not set if the output is not owned by the descriptors
+    value: number; //amount sent. Always set
+  }>;
+  netReceived: number;
+  type: 'CONSOLIDATED' | 'RECEIVED' | 'SENT' | 'RECEIVED_AND_SENT';
 };
 
 /**

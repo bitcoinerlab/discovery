@@ -1,8 +1,7 @@
 // Copyright (c) 2023 Jose-Luis Landabaso - https://bitcoinerlab.com
 // Distributed under the MIT software license
 
-//TODO: Important to emphasize that we don't allow different descritptors for
-//the same output
+const DEFAULT_GAP_LIMIT = 20;
 
 import { produce } from 'immer';
 import { shallowEqualArrays } from 'shallow-equal';
@@ -154,6 +153,79 @@ export function DiscoveryFactory(
     }
 
     /**
+     * Finds the descriptor (and index) that corresponds to the scriptPubKey
+     * passed as argument.
+     * @private
+     * @param options
+     */
+    #getDescriptorByScriptPubKey({
+      networkId,
+      scriptPubKey,
+      gapLimit = 0
+    }: {
+      /**
+       * Network to check.
+       */
+      networkId: NetworkId;
+      /**
+       * The scriptPubKey to check for uniqueness.
+       */
+      scriptPubKey: Buffer;
+      /**
+       * When the descriptor is ranged, it will keep searching for the scriptPubKey
+       * to non-set indices above the last one set until reaching the gapLimit.
+       * If you only need to get one of the existing already-fetched descriptors,
+       * leave gapLimit to zero.
+       */
+      gapLimit?: number;
+    }): { descriptor: Descriptor; index: DescriptorIndex } | undefined {
+      const descriptorMap = this.#discoveryData[networkId].descriptorMap;
+      const descriptors = this.#derivers.deriveUsedDescriptors(
+        this.#discoveryData,
+        networkId
+      );
+      for (const descriptor of descriptors) {
+        const range =
+          descriptorMap[descriptor]?.range ||
+          ({} as Record<DescriptorIndex, OutputData>);
+
+        let maxIndex: DescriptorIndex = -1;
+        for (const indexStr of Object.keys(range)) {
+          const index = indexStr === 'non-ranged' ? indexStr : Number(indexStr);
+          if (
+            scriptPubKey.equals(
+              this.#derivers.deriveScriptPubKey(networkId, descriptor, index) //This will be very fast (uses memoization)
+            )
+          ) {
+            return { descriptor, index };
+          }
+          if (typeof index === 'number') {
+            if (maxIndex === 'non-ranged')
+              throw new Error('maxIndex shoulnt be set as non-ranged');
+            if (index > maxIndex) maxIndex = index;
+          }
+          if (index === 'non-ranged') maxIndex = index;
+        }
+        if (maxIndex !== 'non-ranged' && gapLimit) {
+          for (
+            let index = maxIndex + 1;
+            index < maxIndex + 1 + gapLimit;
+            index++
+          ) {
+            if (
+              scriptPubKey.equals(
+                this.#derivers.deriveScriptPubKey(networkId, descriptor, index) //This will be very fast (uses memoization)
+              )
+            ) {
+              return { descriptor, index };
+            }
+          }
+        }
+      }
+      return; //not found
+    }
+
+    /**
      * Ensures that a scriptPubKey is unique and has not already been set by
      * a different descriptor. This prevents accounting for duplicate unspent
      * transaction outputs (utxos) and balances when different descriptors could
@@ -176,29 +248,14 @@ export function DiscoveryFactory(
        */
       scriptPubKey: Buffer;
     }) {
-      const descriptorMap = this.#discoveryData[networkId].descriptorMap;
-      const descriptors = this.#derivers.deriveUsedDescriptors(
-        this.#discoveryData,
-        networkId
-      );
-      descriptors.forEach(descriptor => {
-        const range =
-          descriptorMap[descriptor]?.range ||
-          ({} as Record<DescriptorIndex, OutputData>);
-
-        Object.keys(range).forEach(indexStr => {
-          const index = indexStr === 'non-ranged' ? indexStr : Number(indexStr);
-          if (
-            scriptPubKey.equals(
-              this.#derivers.deriveScriptPubKey(networkId, descriptor, index) //This will be very fast (uses memoization)
-            )
-          ) {
-            throw new Error(
-              `The provided scriptPubKey is already set: ${descriptor}, ${index}.`
-            );
-          }
-        });
+      const descriptorWithIndex = this.#getDescriptorByScriptPubKey({
+        networkId,
+        scriptPubKey
       });
+      if (descriptorWithIndex)
+        throw new Error(
+          `The provided scriptPubKey is already set: ${descriptorWithIndex.descriptor}, ${descriptorWithIndex.index}.`
+        );
     }
 
     /**
@@ -356,7 +413,7 @@ export function DiscoveryFactory(
       descriptor,
       index,
       descriptors,
-      gapLimit = 20,
+      gapLimit = DEFAULT_GAP_LIMIT,
       onUsed,
       onChecking,
       next
@@ -623,7 +680,7 @@ export function DiscoveryFactory(
      */
     async fetchStandardAccounts({
       masterNode,
-      gapLimit = 20,
+      gapLimit = DEFAULT_GAP_LIMIT,
       onAccountUsed,
       onAccountChecking
     }: {
@@ -1173,6 +1230,114 @@ export function DiscoveryFactory(
         });
       });
       return output;
+    }
+
+    /**
+     * Pushes a transaction to the network and updates the internal state
+     * accordingly. This function ensures that the transaction is pushed,
+     * verifies its presence in the mempool, and updates the internal
+     * `discoveryData` to include the new transaction.
+     *
+     * The `gapLimit` parameter is essential for managing descriptor discovery.
+     * When pushing a transaction, there is a possibility of receiving new funds
+     * as change. If the range for that index does not exist yet, the `gapLimit`
+     * helps to update the descriptor corresponding to a new UTXO for new
+     * indices within the gap limit.
+     *
+     */
+    async push({
+      txHex,
+      gapLimit = DEFAULT_GAP_LIMIT
+    }: {
+      /**
+       * The hexadecimal representation of the transaction to push.
+       */
+      txHex: TxHex;
+      /**
+       * The gap limit for descriptor discovery. Defaults to 20.
+       */
+      gapLimit?: number;
+    }): Promise<void> {
+      const DETECTION_INTERVAL = 3000;
+      const DETECT_RETRY_MAX = 20;
+      const tx = this.#derivers.transactionFromHex(txHex);
+      const txId = tx.getId();
+      const networkId = getNetworkId(network);
+
+      await explorer.push(txHex);
+      const txData = { irreversible: false, blockHeight: 0, txHex };
+
+      //Now, make sure it made it to the mempool:
+      let found = false;
+      for (let i = 0; i < DETECT_RETRY_MAX; i++) {
+        if (await explorer.fetchTx(txId)) {
+          found = true;
+          break;
+        }
+        await new Promise(resolve => setTimeout(resolve, DETECTION_INTERVAL));
+      }
+
+      this.#discoveryData = produce(this.#discoveryData, discoveryData => {
+        const txMap = discoveryData[networkId].txMap;
+        const update = (descriptor: Descriptor, index: DescriptorIndex) => {
+          const range =
+            discoveryData[networkId].descriptorMap[descriptor]?.range;
+          if (!range) throw new Error(`unset range ${networkId}:${descriptor}`);
+          const outputData = range[index];
+          if (!outputData)
+            throw new Error(
+              `unset index ${index} for descriptor ${descriptor}`
+            );
+          if (outputData.txIds.includes(txId))
+            throw new Error(
+              `txId ${txId} was already pushed or part of the discovery object`
+            );
+          outputData.txIds.push(txId);
+          if (!txMap[txId]) txMap[txId] = txData; //Only add it once
+        };
+
+        // search for inputs
+        for (let vin = 0; vin < tx.ins.length; vin++) {
+          const input = tx.ins[vin];
+          if (!input)
+            throw new Error(`Error: invalid input for ${txId}:${vin}`);
+          //Note we create a new Buffer since reverse() mutates the Buffer
+          const prevTxId = Buffer.from(input.hash).reverse().toString('hex');
+          const prevVout = input.index;
+          const prevUtxo: Utxo = `${prevTxId}:${prevVout}`;
+          const extendedDescriptor = this.getDescriptor({ utxo: prevUtxo });
+          if (extendedDescriptor)
+            //This means this tx is spending an utxo tracked by this discovery instance
+            update(
+              extendedDescriptor.descriptor,
+              extendedDescriptor.index === undefined
+                ? 'non-ranged'
+                : extendedDescriptor.index
+            );
+          else if (this.getDescriptor({ txo: prevUtxo }))
+            throw new Error(`Tx ${txId} was already spent.`);
+        }
+
+        // search for outputs
+        for (let vout = 0; vout < tx.outs.length; vout++) {
+          const nextScriptPubKey = tx.outs[vout]?.script;
+          if (!nextScriptPubKey)
+            throw new Error(`Error: invalid output script for ${txId}:${vout}`);
+          const descriptorWithIndex = this.#getDescriptorByScriptPubKey({
+            networkId,
+            scriptPubKey: nextScriptPubKey,
+            gapLimit
+          });
+          if (descriptorWithIndex)
+            //This means this tx is sending funds to a scriptPubKey tracked by
+            //this discovery instance
+            update(descriptorWithIndex.descriptor, descriptorWithIndex.index);
+        }
+      });
+      if (found === false)
+        console.warn(
+          `txId ${txId} was pushed. However, it was then not found in the mempool. It has been set as part of the discoveryData anyway.`
+        );
     }
 
     /**

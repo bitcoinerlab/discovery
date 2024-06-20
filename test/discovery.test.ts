@@ -3,7 +3,7 @@
 //import { DiscoveryFactory } from '../dist';
 //import { networks, crypto } from 'bitcoinjs-lib';
 
-test('This lib still needs the following unit tests', () => {
+test('This lib still needs unit tests (most functionalities are testes in the integration tests)', () => {
   expect(true).toBe(true);
 });
 

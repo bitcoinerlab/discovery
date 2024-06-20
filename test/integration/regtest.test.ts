@@ -1,4 +1,4 @@
-// Copyright (c) 2023 Jose-Luis Landabaso - https://bitcoinerlab.com
+// Copyright (c) 2024 Jose-Luis Landabaso - https://bitcoinerlab.com
 // Distributed under the MIT software license
 
 //TODO: expect something on discoverStandardAccounts
@@ -14,7 +14,7 @@
 //TODO: test the rest of methods
 import { vaultsTests } from './vaults';
 import { RegtestUtils } from 'regtest-client';
-import { networks } from 'bitcoinjs-lib';
+import { Psbt, networks } from 'bitcoinjs-lib';
 import * as secp256k1 from '@bitcoinerlab/secp256k1';
 import * as descriptors from '@bitcoinerlab/descriptors';
 import { mnemonicToSeedSync } from 'bip39';
@@ -38,6 +38,7 @@ type DescriptorIndex = number | 'non-ranged';
 const ESPLORA_CATCHUP_TIME = 5000;
 
 import { fixtures } from '../fixtures/discovery';
+const { wpkhBIP32 } = descriptors.scriptExpressions;
 const network = networks.regtest;
 const gapLimit = fixtures.regtest.gapLimit;
 const irrevConfThresh = fixtures.regtest.irrevConfThresh;
@@ -453,6 +454,107 @@ describe('Discovery on regtest', () => {
         });
       }).toThrow();
     });
+  }
+
+  for (const discoverer of discoverers) {
+    test(`push using ${discoverer.name}`, async () => {
+      const discovery = discoverer.discovery;
+      if (!discovery) throw new Error('discovery should exist');
+
+      const masterNode = BIP32.fromSeed(
+        mnemonicToSeedSync(fixtures.regtest.mnemonic),
+        network
+      );
+      const descriptor = wpkhBIP32({
+        masterNode,
+        network,
+        //different account since they're concurrent:
+        account: 333 + discoverers.indexOf(discoverer),
+        keyPath: '/1/*'
+      });
+      await discovery.fetch({ descriptor });
+      const initialNUtxos = discovery.getUtxos({ descriptor }).length;
+      const nextIndex = discovery.getNextIndex({ descriptor });
+      const output = new Output({
+        descriptor,
+        network,
+        index: nextIndex
+      });
+      const address = output.getAddress();
+
+      //Create a new utxo received in nextIndex
+      await regtestUtils.faucet(address, 100000);
+      for (let i = 0; i < 10; i++) {
+        await discovery.fetch({ descriptor });
+        if (discovery.getUtxos({ descriptor }).length > initialNUtxos) break;
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+      expect(discovery.getUtxos({ descriptor }).length).toBeGreaterThan(
+        initialNUtxos
+      );
+      const nextNextIndex = discovery.getNextIndex({ descriptor });
+
+      expect(nextNextIndex).toBe(nextIndex + 1);
+
+      const { utxos, balance } = discovery.getUtxosAndBalance({ descriptor });
+
+      //Create a new tx that spends all utxos and sends them to nextNextIndex
+      const psbt = new Psbt({ network });
+      const finalizers = [];
+      for (const utxo of utxos) {
+        const descriptorWithIndex = discovery.getDescriptor({ utxo });
+        if (descriptorWithIndex) {
+          const output = new Output({
+            descriptor: descriptorWithIndex.descriptor,
+            ...(descriptorWithIndex.index !== undefined
+              ? { index: descriptorWithIndex.index }
+              : {}),
+            network
+          });
+          const [txId, strVout] = utxo.split(':');
+          const vout = Number(strVout);
+          if (!txId || isNaN(vout) || !Number.isInteger(vout) || vout < 0)
+            throw new Error(`Invalid utxo ${utxo}`);
+          const txHex = discovery.getTxHex({ txId });
+
+          const finalizer = output.updatePsbtAsInput({ psbt, vout, txHex });
+          finalizers.push(finalizer);
+        }
+      }
+      const finalOutput = new Output({
+        descriptor,
+        index: nextNextIndex,
+        network
+      });
+      const finalBalance = Math.floor(0.9 * balance);
+      finalOutput.updatePsbtAsOutput({
+        psbt,
+        value: finalBalance
+      });
+      descriptors.signers.signBIP32({ psbt, masterNode });
+
+      for (const finalizer of finalizers) finalizer({ psbt });
+      const txHex = psbt.extractTransaction(true).toHex();
+      await discovery.push({ txHex });
+      const nextNextNextIndex = discovery.getNextIndex({ descriptor });
+      expect(nextNextNextIndex).toBe(nextNextIndex + 1);
+      expect(discovery.getUtxosAndBalance({ descriptor }).balance).toBe(
+        finalBalance
+      );
+      const utxosAfterPush = discovery.getUtxosAndBalance({ descriptor }).utxos;
+
+      //Now really fetch it and make sure the push routine already set all the
+      //relevant data, even if a fetch was not involved:
+      await discovery.fetch({ descriptor });
+      expect(nextNextNextIndex).toBe(nextNextIndex + 1);
+      expect(discovery.getUtxosAndBalance({ descriptor }).balance).toBe(
+        finalBalance
+      );
+      //Utxos should not change and therefore must keep same reference
+      expect(discovery.getUtxosAndBalance({ descriptor }).utxos).toBe(
+        utxosAfterPush
+      );
+    }, 10000);
   }
 
   for (const { explorer, name } of discoverers) {

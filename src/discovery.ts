@@ -180,16 +180,13 @@ export function DiscoveryFactory(
       gapLimit?: number;
     }): { descriptor: Descriptor; index: DescriptorIndex } | undefined {
       const descriptorMap = this.#discoveryData[networkId].descriptorMap;
-      const descriptors = this.#derivers.deriveUsedDescriptors(
-        this.#discoveryData,
-        networkId
-      );
+      const descriptors = Object.keys(descriptorMap);
       for (const descriptor of descriptors) {
         const range =
           descriptorMap[descriptor]?.range ||
           ({} as Record<DescriptorIndex, OutputData>);
 
-        let maxIndex: DescriptorIndex = -1;
+        let maxUsedIndex: DescriptorIndex = -1;
         for (const indexStr of Object.keys(range)) {
           const index = indexStr === 'non-ranged' ? indexStr : Number(indexStr);
           if (
@@ -200,16 +197,17 @@ export function DiscoveryFactory(
             return { descriptor, index };
           }
           if (typeof index === 'number') {
-            if (maxIndex === 'non-ranged')
-              throw new Error('maxIndex shoulnt be set as non-ranged');
-            if (index > maxIndex) maxIndex = index;
+            if (maxUsedIndex === 'non-ranged')
+              throw new Error('maxUsedIndex shoulnt be set as non-ranged');
+            if (index > maxUsedIndex && range[index]?.txIds.length)
+              maxUsedIndex = index;
           }
-          if (index === 'non-ranged') maxIndex = index;
+          if (index === 'non-ranged') maxUsedIndex = index;
         }
-        if (maxIndex !== 'non-ranged' && gapLimit) {
+        if (maxUsedIndex !== 'non-ranged' && gapLimit) {
           for (
-            let index = maxIndex + 1;
-            index < maxIndex + 1 + gapLimit;
+            let index = maxUsedIndex + 1;
+            index < maxUsedIndex + 1 + gapLimit;
             index++
           ) {
             if (
@@ -313,6 +311,9 @@ export function DiscoveryFactory(
         if (!range) throw new Error(`unset range ${networkId}:${descriptor}`);
         const outputData = range[internalIndex];
         if (!outputData) {
+          //If it has not been set already, search for other descriptor expressions
+          //in case the same scriptPubKey already exists and throw if this is the
+          //case
           this.#ensureScriptPubKeyUniqueness({ networkId, scriptPubKey });
           range[internalIndex] = { txIds: [], fetching: true, timeFetched: 0 };
         } else outputData.fetching = true;
@@ -1262,10 +1263,8 @@ export function DiscoveryFactory(
       const DETECT_RETRY_MAX = 20;
       const tx = this.#derivers.transactionFromHex(txHex);
       const txId = tx.getId();
-      const networkId = getNetworkId(network);
 
       await explorer.push(txHex);
-      const txData = { irreversible: false, blockHeight: 0, txHex };
 
       //Now, make sure it made it to the mempool:
       let found = false;
@@ -1276,6 +1275,64 @@ export function DiscoveryFactory(
         }
         await new Promise(resolve => setTimeout(resolve, DETECTION_INTERVAL));
       }
+
+      const txData = { irreversible: false, blockHeight: 0, txHex };
+      this.addTransaction({ txData, gapLimit });
+      if (found === false)
+        console.warn(
+          `txId ${txId} was pushed. However, it was then not found in the mempool. It has been set as part of the discoveryData anyway.`
+        );
+    }
+
+    /*
+     * Given a transaction it updates the internal `discoveryData` state to
+     * include it.
+     *
+     * This function is useful when a transaction affecting one of the
+     * descriptors has been pushed to the blockchain by a third party. It allows
+     * updating the internal representation without performing a more expensive
+     * `fetch` operation.
+     *
+     * If the transaction was recently pushed to the blockchain, set
+     * `txData.irreversible = false` and `txData.blockHeight = 0`.
+     *
+     * The transaction is represented by `txData`, where
+     * `txData = { blockHeight: number; irreversible: boolean; txHex: TxHex; }`.
+     *
+     * It includes its hexadecimal representation `txHex`, its `blockHeight`
+     * (zero if it's in the mempool), and whether it is `irreversible` or
+     * not. `irreversible` is set by the Explorer, using the configuration parameter
+     * `irrevConfThresh` (defaults to `IRREV_CONF_THRESH = 3`). It can be obtained
+     * by calling explorer.fetchTxHistory(), for example. Set it to
+     * `false` when it's been just pushed (which will be the typical use of this
+     * function).
+     *
+     * The `gapLimit` parameter is essential for managing descriptor discovery.
+     * When addint a transaction, there is a possibility the transaction is
+     * adding new funds as change (for example). If the range for that index
+     * does not exist yet, the `gapLimit` helps to update the descriptor
+     * corresponding to a new UTXO for new indices within the gap limit.
+     */
+    addTransaction({
+      txData,
+      gapLimit = DEFAULT_GAP_LIMIT
+    }: {
+      /**
+       * The hexadecimal representation of the tx and its associated data.
+       * `txData = { blockHeight: number; irreversible: boolean; txHex: TxHex; }`.
+       */
+      txData: TxData;
+      /**
+       * The gap limit for descriptor discovery. Defaults to 20.
+       */
+      gapLimit?: number;
+    }): void {
+      const txHex = txData.txHex;
+      if (!txHex)
+        throw new Error('txData must contain complete txHex information');
+      const tx = this.#derivers.transactionFromHex(txHex);
+      const txId = tx.getId();
+      const networkId = getNetworkId(network);
 
       this.#discoveryData = produce(this.#discoveryData, discoveryData => {
         const txMap = discoveryData[networkId].txMap;
@@ -1334,10 +1391,6 @@ export function DiscoveryFactory(
             update(descriptorWithIndex.descriptor, descriptorWithIndex.index);
         }
       });
-      if (found === false)
-        console.warn(
-          `txId ${txId} was pushed. However, it was then not found in the mempool. It has been set as part of the discoveryData anyway.`
-        );
     }
 
     /**

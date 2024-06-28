@@ -1190,7 +1190,7 @@ export function DiscoveryFactory(
       const split = txo.split(':');
       if (utxo && split.length !== 2)
         throw new Error(`Error: invalid utxo: ${utxo}`);
-      if (!utxo && split.length !== 3)
+      if (!utxo && split.length !== 2 && split.length !== 3)
         throw new Error(`Error: invalid txo: ${txo}`);
       const txId = split[0];
       if (!txId) throw new Error(`Error: invalid txo: ${txo}`);

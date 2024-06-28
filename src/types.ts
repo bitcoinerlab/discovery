@@ -1,3 +1,4 @@
+import type { Transaction } from 'bitcoinjs-lib';
 /**
  * Versions the structure of the data model. This variable should to be
  * changed when any of the types below change.
@@ -84,6 +85,29 @@ export enum TxStatus {
   /** CONFIRMED with at least 1 confirmation */
   CONFIRMED = 'CONFIRMED'
 }
+/**
+ * A string representing an indexed descriptor for ranged descriptors or a
+ * descriptor followed by a separator and the keyword "non-ranged".
+ *
+ * An `IndexedDescriptor` is a descriptor representation what must correspond to
+ * a single output.
+ *
+ * - If it is ranged, then add an integer after the separaror (a
+ * tilde "\~").
+ * - It it is non-ranged, add the string "non-ranged" after the tilde "\~".
+ *
+ * Examples:
+ * pkh([73c5da0a/44'/1'/0']tpubDC5FSnBiZDMmhiuCmWAYsLwgLYrrT9rAqvTySfuCCrgsWz8wxMXUS9Tb9iVMvcRbvFcAHGkMD5Kx8koh4GquNGNTfohfk7pgjhaPCdXpoba/0/*)\~12
+ * pkh([73c5da0a/44'/1'/0']tpubDC5FSnBiZDMmhiuCmWAYsLwgLYrrT9rAqvTySfuCCrgsWz8wxMXUS9Tb9iVMvcRbvFcAHGkMD5Kx8koh4GquNGNTfohfk7pgjhaPCdXpoba)\~non-ranged
+ */
+export type IndexedDescriptor = string;
+/**
+ * a Txo is represented in a similar manner as a Utxo, that is,
+ * prevtxId:vout. Hovewer, we use a different type name to denote we're dealing
+ * here with tx outputs that may have been spent or not
+ */
+type Txo = string;
+export type TxoMap = Record<Txo, IndexedDescriptor>;
 
 /**
  * Type definition for Transaction ID.
@@ -102,6 +126,12 @@ export type Utxo = string; //`${txId}:${vout}`
  * ${recipientTxId}:${recipientVin}
  */
 export type Stxo = string; //`${txId}:${vout}:${recipientTxId}:${recipientVin}`
+
+export type TxWithOrder = {
+  blockHeight: number;
+  tx?: Transaction;
+  txHex?: string;
+};
 
 /**
  * Type definition for Transaction Information.

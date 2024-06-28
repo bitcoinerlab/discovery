@@ -3,10 +3,13 @@
 import { DiscoveryFactory, DiscoveryInstance } from './discovery';
 export { DiscoveryFactory, DiscoveryInstance };
 export {
+  TxWithOrder,
   OutputCriteria,
   TxStatus,
   Account,
+  TxoMap,
   Utxo,
   Stxo,
+  IndexedDescriptor,
   TxAttribution
 } from './types';

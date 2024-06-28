@@ -3,7 +3,7 @@
 
 import memoizee from 'memoizee';
 import { memoizeOneWithShallowArraysCheck } from './memoizers';
-import { shallowEqualArrays } from 'shallow-equal';
+import { shallowEqualArrays, shallowEqualObjects } from 'shallow-equal';
 import {
   NetworkId,
   OutputData,
@@ -17,7 +17,9 @@ import {
   TxAttribution,
   TxId,
   TxData,
-  Stxo
+  Stxo,
+  TxWithOrder,
+  TxoMap
 } from './types';
 import { Transaction, Network } from 'bitcoinjs-lib';
 import { DescriptorsFactory } from '@bitcoinerlab/descriptors';
@@ -60,6 +62,64 @@ export function deriveDataFactory({
   descriptorsCacheSize: number;
   outputsPerDescriptorCacheSize: number;
 }) {
+  /**
+   * Compares two transactions based on their blockHeight and input dependencies.
+   * Can be used as callback in Array.sort function to sort from old to new.
+   *
+   * @param txWithOrderA - The first transaction data to compare.
+   * @param txWithOrderB - The second transaction data to compare.
+   *
+   *
+   * txWithOrderA and txWithOrderB should contain the `blockHeight` (use 0 if
+   * in the mempool) and either `tx` (`Transaction` type) or `txHex` (the
+   * hexadecimal representation of the transaction)
+   *
+   * @returns < 0 if txWithOrderA is older than txWithOrderB, > 01 if txWithOrderA is newer than txWithOrderB, and 0 if undecided.
+   */
+  function compareTxOrder<TA extends TxWithOrder, TB extends TxWithOrder>(
+    txWithOrderA: TA,
+    txWithOrderB: TB
+  ): number {
+    // txWithOrderA is in mempool and txWithOrderB no, so txWithOrderA is newer
+    if (txWithOrderA.blockHeight === 0 && txWithOrderB.blockHeight !== 0)
+      return 1;
+    // txWithOrderB is in mempool and txWithOrderA no, so txWithOrderB is newer
+    if (txWithOrderB.blockHeight === 0 && txWithOrderA.blockHeight !== 0)
+      return -1;
+    // If blockHeight is different and none are in the mempool, sort by blockHeight
+    if (txWithOrderA.blockHeight !== txWithOrderB.blockHeight)
+      return txWithOrderA.blockHeight - txWithOrderB.blockHeight;
+
+    // If blockHeight is the same, check input dependencies
+    let txA = txWithOrderA.tx;
+    let txIdA: string | undefined;
+    if (!txA) {
+      if (!txWithOrderA.txHex) throw new Error('Pass tx or txHex');
+      const { tx, txId } = transactionFromHex(txWithOrderA.txHex);
+      txA = tx;
+      txIdA = txId;
+    }
+    let txB = txWithOrderB.tx;
+    let txIdB: string | undefined;
+    if (!txB) {
+      if (!txWithOrderB.txHex) throw new Error('Pass tx or txHex');
+      const { tx, txId } = transactionFromHex(txWithOrderB.txHex);
+      txB = tx;
+      txIdB = txId;
+    }
+    //getHash is slow, try to avoid it if we can use a cached getId:
+    const txHashB = txIdB ? hex2RevBuf(txIdB) : txB.getHash();
+    // txA is newer because it uses an input from txB
+    for (const Ainput of txA.ins) if (Ainput.hash.equals(txHashB)) return 1;
+
+    //getHash is slow, try to avoid it if we can use a cached getId:
+    const txHashA = txIdA ? hex2RevBuf(txIdA) : txA.getHash();
+    // txB is newer because it uses an input from txA
+    for (const Binput of txB.ins) if (Binput.hash.equals(txHashA)) return -1;
+
+    return 0; // Cannot decide, keep the original order
+  }
+
   const deriveScriptPubKeyFactory = memoizee(
     (networkId: NetworkId) =>
       memoizee(
@@ -93,20 +153,25 @@ export function deriveDataFactory({
     networkId: NetworkId,
     descriptor: Descriptor,
     index: DescriptorIndex,
-    txDataArray: Array<TxData>,
+    txWithOrderArray: Array<TxData>,
     txStatus: TxStatus
-  ): { utxos: Array<Utxo>; stxos: Array<Stxo> } => {
+  ): {
+    utxos: Array<Utxo>;
+    stxos: Array<Stxo>;
+    txoMap: TxoMap;
+  } => {
     const scriptPubKey = deriveScriptPubKey(networkId, descriptor, index);
+    const txoMap: TxoMap = {};
     //All prev outputs (spent or unspent) sent to this output descriptor:
     const allPrevOutputs: Utxo[] = [];
-    //all outputs in txDataArray which have been spent.
+    //all outputs in txWithOrderArray which have been spent.
     //May be outputs NOT snt to thil output descriptor:
     const spendingTxIdByOutput: Record<Utxo, TxId> = {}; //Means: Utxo was spent in txId
 
-    //Note that txDataArray cannot be assumed to be in correct order. See:
+    //Note that txWithOrderArray cannot be assumed to be in correct order if
+    //in the same block and if one does not depend on the other. See:
     //https://github.com/Blockstream/esplora/issues/165#issuecomment-1584471718
-    //TODO: but we should guarantee same order always so use txId as second order criteria? - probably not needed?
-    for (const txData of txDataArray) {
+    for (const txData of txWithOrderArray) {
       if (
         txStatus === TxStatus.ALL ||
         (txStatus === TxStatus.IRREVERSIBLE && txData.irreversible) ||
@@ -117,32 +182,24 @@ export function deriveDataFactory({
           throw new Error(
             `txHex not yet retrieved for an element of ${descriptor}, ${index}`
           );
-        const tx = transactionFromHex(txHex);
-        const txId = tx.getId();
+        const { tx, txId } = transactionFromHex(txHex);
 
-        for (let vin = 0; vin < tx.ins.length; vin++) {
-          const input = tx.ins[vin];
-          if (!input)
-            throw new Error(`Error: invalid input for ${txId}:${vin}`);
-          //Note we create a new Buffer since reverse() mutates the Buffer
-          const prevTxId = Buffer.from(input.hash).reverse().toString('hex');
+        for (const [vin, input] of tx.ins.entries()) {
+          const prevTxId = buf2RevHex(input.hash);
           const prevVout = input.index;
           const prevUtxo: Utxo = `${prevTxId}:${prevVout}`;
           spendingTxIdByOutput[prevUtxo] = `${txId}:${vin}`; //prevUtxo was spent by txId in input vin
         }
 
-        for (let vout = 0; vout < tx.outs.length; vout++) {
-          const outputScript = tx.outs[vout]?.script;
-          if (!outputScript)
-            throw new Error(`Error: invalid output script for ${txId}:${vout}`);
-          if (outputScript.equals(scriptPubKey)) {
-            const outputKey: Utxo = `${txId}:${vout}`;
-            allPrevOutputs.push(outputKey);
+        for (const [vout, output] of tx.outs.entries()) {
+          if (output.script.equals(scriptPubKey)) {
+            const txo = `${txId}:${vout}`;
+            allPrevOutputs.push(txo);
+            txoMap[txo] = `${descriptor}~${index}`;
           }
         }
       }
     }
-
     // UTXOs are those in allPrevOutputs that have not been spent
     const utxos = allPrevOutputs.filter(
       output => !Object.keys(spendingTxIdByOutput).includes(output)
@@ -151,7 +208,7 @@ export function deriveDataFactory({
       .filter(output => Object.keys(spendingTxIdByOutput).includes(output))
       .map(txo => `${txo}:${spendingTxIdByOutput[txo]}`);
 
-    return { utxos, stxos };
+    return { utxos, stxos, txoMap };
   };
 
   const deriveUtxosAndBalanceByOutputFactory = memoizee(
@@ -164,34 +221,37 @@ export function deriveDataFactory({
                 (index: DescriptorIndex) => {
                   // Create one function per each expression x index x txStatus
                   // coreDeriveTxosByOutput shares all params wrt the parent
-                  // function except for additional param txDataArray.
-                  // As soon as txDataArray in coreDeriveTxosByOutput changes,
+                  // function except for additional param txWithOrderArray.
+                  // As soon as txWithOrderArray in coreDeriveTxosByOutput changes,
                   // it will resets its memory.
                   const deriveTxosByOutput = memoizee(coreDeriveTxosByOutput, {
                     max: 1
                   });
                   let lastUtxos: Array<Utxo> | null = null;
                   let lastStxos: Array<Stxo> | null = null;
+                  let lastTxoMap: TxoMap | null = null;
                   let lastBalance: number;
                   return memoizee(
                     (
                       txMap: Record<TxId, TxData>,
                       descriptorMap: Record<Descriptor, DescriptorData>
                     ) => {
-                      const txDataArray = deriveTxDataArray(
+                      const txWithOrderArray = deriveTxDataArray(
                         txMap,
                         descriptorMap,
                         descriptor,
                         index
                       );
-                      let { utxos, stxos } = deriveTxosByOutput(
+                      let { utxos, stxos, txoMap } = deriveTxosByOutput(
                         networkId,
                         descriptor,
                         index,
-                        txDataArray,
+                        txWithOrderArray,
                         txStatus
                       );
                       let balance: number;
+                      if (lastTxoMap && shallowEqualObjects(lastTxoMap, txoMap))
+                        txoMap = lastTxoMap;
                       if (lastStxos && shallowEqualArrays(lastStxos, stxos))
                         stxos = lastStxos;
                       if (lastUtxos && shallowEqualArrays(lastUtxos, utxos)) {
@@ -199,10 +259,11 @@ export function deriveDataFactory({
                         balance = lastBalance;
                       } else balance = coreDeriveUtxosBalance(txMap, utxos);
 
+                      lastTxoMap = txoMap;
                       lastUtxos = utxos;
                       lastStxos = stxos;
                       lastBalance = balance;
-                      return { stxos, utxos, balance };
+                      return { txoMap, stxos, utxos, balance };
                     },
                     { max: 1 }
                   );
@@ -249,8 +310,8 @@ export function deriveDataFactory({
             ) => {
               const range = deriveUsedRange(descriptorMap[descriptor]);
               const txIds = range[index]?.txIds || [];
-              const txDataArray = coreDeriveTxDataArray(txIds, txMap);
-              return txDataArray;
+              const txWithOrderArray = coreDeriveTxDataArray(txIds, txMap);
+              return txWithOrderArray;
             }
           );
         },
@@ -296,11 +357,10 @@ export function deriveDataFactory({
     return txHistory.map(txData => {
       const { txHex, irreversible, blockHeight } = txData;
       if (!txHex) throw new Error(`Error: txHex not found`);
-      const tx = transactionFromHex(txHex);
-      const txId = tx.getId();
+      const { tx, txId } = transactionFromHex(txHex);
 
       const ins = tx.ins.map(input => {
-        const prevTxId = Buffer.from(input.hash).reverse().toString('hex');
+        const prevTxId = buf2RevHex(input.hash);
         const prevVout = input.index;
         const prevTxo: Utxo = `${prevTxId}:${prevVout}`;
         const ownedPrevTxo: Utxo | false = txoSet.has(prevTxo)
@@ -309,7 +369,7 @@ export function deriveDataFactory({
         if (ownedPrevTxo) {
           const prevTxHex = txMap[prevTxId]?.txHex;
           if (!prevTxHex) throw new Error(`txHex not set for ${prevTxId}`);
-          const prevTx = transactionFromHex(prevTxHex);
+          const { tx: prevTx } = transactionFromHex(prevTxHex);
           const value = prevTx.outs[prevVout]?.value;
           if (value === undefined)
             throw new Error(`value should exist for ${prevTxId}:${prevVout}`);
@@ -395,16 +455,17 @@ export function deriveDataFactory({
                               (txStatus === TxStatus.CONFIRMED &&
                                 txData.blockHeight !== 0)
                           );
+                          const sortedHistory = txHistory.sort(compareTxOrder);
                           if (withAttributions)
                             return deriveAttributions(
-                              txHistory,
+                              sortedHistory,
                               networkId,
                               txMap,
                               descriptorMap,
                               descriptor,
                               txStatus
                             );
-                          else return txHistory;
+                          else return sortedHistory;
                         }
                       );
                     },
@@ -476,20 +537,11 @@ export function deriveDataFactory({
     //since we have txs belonging to different expressions let's try to order
     //them from old to new (blockHeight ascending order).
     //Note that we cannot guarantee to keep correct order to txs
-    //that belong to the same blockHeight
-    //TODO: but we should guarantee same order always so use txId as second order criteria? - probably not needed?
-    const sortedHistory = dedupedHistory.sort((txDataA, txDataB) => {
-      if (txDataA.blockHeight === 0 && txDataB.blockHeight === 0) {
-        return 0; // Both are in mempool, keep their relative order unchanged
-      }
-      if (txDataA.blockHeight === 0) {
-        return 1; // txDataA is in mempool, so it should come after txDataB
-      }
-      if (txDataB.blockHeight === 0) {
-        return -1; // txDataB is in mempool, so it should come after txDataA
-      }
-      return txDataA.blockHeight - txDataB.blockHeight; // Regular ascending order sort
-    });
+    //that belong to the same blockHeight except when one of the txs depends
+    //on the other.
+    //See https://github.com/Blockstream/esplora/issues/165#issuecomment-1584471718
+    const sortedHistory = dedupedHistory.sort(compareTxOrder);
+
     if (withAttributions)
       return deriveAttributions(
         sortedHistory,
@@ -551,9 +603,10 @@ export function deriveDataFactory({
     txMap: Record<TxId, TxData>,
     descriptorOrDescriptors: Array<Descriptor> | Descriptor,
     txStatus: TxStatus
-  ): { utxos: Array<Utxo>; stxos: Array<Stxo> } => {
+  ): { utxos: Array<Utxo>; stxos: Array<Stxo>; txoMap: TxoMap } => {
     const utxos: Utxo[] = [];
     const stxos: Stxo[] = [];
+    const txoMap: TxoMap = {};
     const descriptorArray = Array.isArray(descriptorOrDescriptors)
       ? descriptorOrDescriptors
       : [descriptorOrDescriptors];
@@ -563,24 +616,28 @@ export function deriveDataFactory({
         .sort() //Sort it to be deterministic
         .forEach(indexStr => {
           const index = indexStr === 'non-ranged' ? indexStr : Number(indexStr);
-          const { utxos: utxosByO, stxos: stxosByO } =
-            deriveUtxosAndBalanceByOutput(
-              networkId,
-              txMap,
-              descriptorMap,
-              descriptor,
-              index,
-              txStatus
-            );
+          const {
+            utxos: utxosByO,
+            stxos: stxosByO,
+            txoMap: txoMapByO
+          } = deriveUtxosAndBalanceByOutput(
+            networkId,
+            txMap,
+            descriptorMap,
+            descriptor,
+            index,
+            txStatus
+          );
           utxos.push(...utxosByO);
           stxos.push(...stxosByO);
+          Object.assign(txoMap, txoMapByO);
         });
     }
     //Deduplicate in case of expression: Array<Descriptor> with duplicated
     //descriptorOrDescriptors
     const dedupedUtxos = [...new Set(utxos)];
     const dedupedStxos = [...new Set(stxos)];
-    return { utxos: dedupedUtxos, stxos: dedupedStxos };
+    return { utxos: dedupedUtxos, stxos: dedupedStxos, txoMap };
   };
 
   //unbound memoizee wrt TxStatus is fine since it has a small Search Space
@@ -593,6 +650,7 @@ export function deriveDataFactory({
         (txStatus: TxStatus) =>
           memoizee(
             (descriptorOrDescriptors: Array<Descriptor> | Descriptor) => {
+              let lastTxoMap: TxoMap | null = null;
               let lastUtxos: Array<Utxo> | null = null;
               let lastStxos: Array<Stxo> | null = null;
               let lastBalance: number;
@@ -601,7 +659,7 @@ export function deriveDataFactory({
                   txMap: Record<TxId, TxData>,
                   descriptorMap: Record<Descriptor, DescriptorData>
                 ) => {
-                  let { utxos, stxos } = coreDeriveTxos(
+                  let { utxos, stxos, txoMap } = coreDeriveTxos(
                     networkId,
                     descriptorMap,
                     txMap,
@@ -609,6 +667,8 @@ export function deriveDataFactory({
                     txStatus
                   );
                   let balance: number;
+                  if (lastTxoMap && shallowEqualObjects(lastTxoMap, txoMap))
+                    txoMap = lastTxoMap;
                   if (lastStxos && shallowEqualArrays(lastStxos, stxos))
                     stxos = lastStxos;
                   if (lastUtxos && shallowEqualArrays(lastUtxos, utxos)) {
@@ -616,10 +676,11 @@ export function deriveDataFactory({
                     balance = lastBalance;
                   } else balance = coreDeriveUtxosBalance(txMap, utxos);
 
+                  lastTxoMap = txoMap;
                   lastUtxos = utxos;
                   lastStxos = stxos;
                   lastBalance = balance;
-                  return { stxos, utxos, balance };
+                  return { stxos, utxos, txoMap, balance };
                 },
                 { max: 1 }
               );
@@ -643,10 +704,36 @@ export function deriveDataFactory({
       descriptorMap
     );
 
-  const transactionFromHex = memoizee(Transaction.fromHex, {
-    primitive: true,
-    max: 1000
-  });
+  const transactionFromHex = memoizee(
+    (txHex: string) => {
+      const tx = Transaction.fromHex(txHex);
+      const txId = tx.getId();
+      return { tx, txId };
+    },
+    {
+      primitive: true,
+      max: 1000
+    }
+  );
+  const hex2RevBuf = memoizee(
+    (idOrHash: string) => {
+      return Buffer.from(idOrHash).reverse();
+    },
+    {
+      primitive: true,
+      max: 1000
+    }
+  );
+  const buf2RevHex = memoizee(
+    (idOrHash: Buffer) => {
+      //Note we create a new Buffer since reverse() mutates the Buffer
+      return Buffer.from(idOrHash).reverse().toString('hex');
+    },
+    {
+      primitive: true,
+      max: 1000
+    }
+  );
 
   const coreDeriveUtxosBalance = (
     txMap: Record<TxId, TxData>,
@@ -671,7 +758,7 @@ export function deriveDataFactory({
         throw new Error(`txData not saved for ${txId}, vout:${vout} - ${utxo}`);
       const txHex = txData.txHex;
       if (!txHex) throw new Error(`txHex not yet retrieved for ${txId}`);
-      const tx = transactionFromHex(txHex);
+      const { tx } = transactionFromHex(txHex);
       const output = tx.outs[vout];
       if (!output) throw new Error(`Error: invalid output for ${txId}:${vout}`);
       const outputValue = output.value; // value in satoshis
@@ -804,6 +891,7 @@ export function deriveDataFactory({
     deriveAccountDescriptors,
     deriveHistoryByOutput,
     deriveHistory,
-    transactionFromHex
+    transactionFromHex,
+    compareTxOrder
   };
 }

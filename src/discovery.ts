@@ -34,7 +34,9 @@ import {
   TxStatus,
   Stxo,
   TxHex,
-  TxAttribution
+  TxAttribution,
+  TxWithOrder,
+  TxoMap
 } from './types';
 
 const now = () => Math.floor(Date.now() / 1000);
@@ -831,6 +833,10 @@ export function DiscoveryFactory(
      * scriptPubKeys and the total balance of these UTXOs.
      * It also returns previous UTXOs that had been
      * eventually spent as stxos: Array<Stxo>
+     * Finally, it returns `txoMap`. `txoMap` maps all the txos (unspent or spent
+     * outputs) with their corresponding `indexedDescriptor: IndexedDescriptor`
+     * (see {@link IndexedDescriptor IndexedDescriptor})
+     *
      */
     getUtxosAndBalance({
       descriptor,
@@ -840,6 +846,7 @@ export function DiscoveryFactory(
     }: OutputCriteria): {
       utxos: Array<Utxo>;
       stxos: Array<Stxo>;
+      txoMap: TxoMap;
       balance: number;
     } {
       this.#ensureFetched({
@@ -1022,13 +1029,13 @@ export function DiscoveryFactory(
       const descriptorMap = this.#discoveryData[networkId].descriptorMap;
       const txMap = this.#discoveryData[networkId].txMap;
 
-      let txDataArray: Array<TxData> = [];
+      let txWithOrderArray: Array<TxData> = [];
       if (
         descriptor &&
         (typeof index !== 'undefined' || !descriptor.includes('*'))
       ) {
         const internalIndex = typeof index === 'number' ? index : 'non-ranged';
-        txDataArray = this.#derivers.deriveHistoryByOutput(
+        txWithOrderArray = this.#derivers.deriveHistoryByOutput(
           withAttributions,
           networkId,
           txMap,
@@ -1038,7 +1045,7 @@ export function DiscoveryFactory(
           txStatus
         );
       } else
-        txDataArray = this.#derivers.deriveHistory(
+        txWithOrderArray = this.#derivers.deriveHistory(
           withAttributions,
           networkId,
           txMap,
@@ -1047,7 +1054,7 @@ export function DiscoveryFactory(
           txStatus
         );
 
-      return txDataArray;
+      return txWithOrderArray;
     }
 
     /**
@@ -1091,8 +1098,11 @@ export function DiscoveryFactory(
      * Retrieves the transaction data as a bitcoinjs-lib
      * {@link https://github.com/bitcoinjs/bitcoinjs-lib/blob/master/ts_src/transaction.ts Transaction}
      * object given the transaction
-     * ID (TxId) or a Unspent Transaction Output (Utxo). The transaction data is obtained by first getting
-     * the transaction hexadecimal representation using getTxHex() method.
+     * ID (TxId) or a Unspent Transaction Output (Utxo) or the hexadecimal
+     * representation of the transaction (it will then use memoization).
+     * The transaction data is obtained by first getting
+     * the transaction hexadecimal representation using getTxHex() method
+     * (unless the txHex was passed).
      *
      * Use this method for quick access to the Transaction object, which avoids the
      * need to parse the transaction hexadecimal representation (txHex).
@@ -1104,6 +1114,7 @@ export function DiscoveryFactory(
      */
     getTransaction({
       txId,
+      txHex,
       utxo
     }: {
       /**
@@ -1111,15 +1122,41 @@ export function DiscoveryFactory(
        */
       txId?: TxId;
       /**
+       * The transaction txHex.
+       */
+      txHex?: TxId;
+      /**
        * The UTXO.
        */
       utxo?: Utxo;
     }): Transaction {
-      const txHex = this.getTxHex({
-        ...(utxo ? { utxo } : {}),
-        ...(txId ? { txId } : {})
-      });
-      return this.#derivers.transactionFromHex(txHex);
+      if (!txHex)
+        txHex = this.getTxHex({
+          ...(utxo ? { utxo } : {}),
+          ...(txId ? { txId } : {})
+        });
+      return this.#derivers.transactionFromHex(txHex).tx;
+    }
+
+    /**
+     * Compares two transactions based on their blockHeight and input dependencies.
+     * Can be used as callback in Array.sort function to sort from old to new.
+     *
+     * @param txWithOrderA - The first transaction data to compare.
+     * @param txWithOrderB - The second transaction data to compare.
+     *
+     * txWithOrderA and txWithOrderB should contain the `blockHeight` (use 0 if
+     * in the mempool) and either `tx` (`Transaction` type) or `txHex` (the
+     * hexadecimal representation of the transaction)
+     *
+     * @returns < 0 if txWithOrderA is older than txWithOrderB, > 0 if
+     * txWithOrderA is newer than txWithOrderB, and 0 if undecided.
+     */
+    compareTxOrder<TA extends TxWithOrder, TB extends TxWithOrder>(
+      txWithOrderA: TA,
+      txWithOrderB: TB
+    ): number {
+      return this.#derivers.compareTxOrder(txWithOrderA, txWithOrderB);
     }
 
     /**
@@ -1128,8 +1165,6 @@ export function DiscoveryFactory(
      * spent already or not) and this function will also retrieve its descriptor.
      * txo can be in any of these formats: `${txId}:${vout}` or
      * using its extended form: `${txId}:${vout}:${recipientTxId}:${recipientVin}`
-     *
-     * This query can be quite slow so use wisely.
      *
      * Returns the descriptor (and index if ranged) or undefined if not found.
      */
@@ -1153,7 +1188,10 @@ export function DiscoveryFactory(
       const networkId = getNetworkId(network);
       if (!txo) throw new Error('Pass either txo or utxo');
       const split = txo.split(':');
-      if (split.length !== 2) throw new Error(`Error: invalid txo: ${txo}`);
+      if (utxo && split.length !== 2)
+        throw new Error(`Error: invalid utxo: ${utxo}`);
+      if (!utxo && split.length !== 3)
+        throw new Error(`Error: invalid txo: ${txo}`);
       const txId = split[0];
       if (!txId) throw new Error(`Error: invalid txo: ${txo}`);
       const strVout = split[1];
@@ -1161,13 +1199,7 @@ export function DiscoveryFactory(
       const vout = parseInt(strVout);
       if (vout.toString() !== strVout)
         throw new Error(`Error: invalid txo: ${txo}`);
-      //const txHex = this.#discoveryData[networkId].txMap[txId]?.txHex;
-      //if (!txHex)
-      //  throw new Error(
-      //    `Error: txHex not found for ${txo} while looking for its descriptor.`
-      //  );
 
-      const descriptorMap = this.#discoveryData[networkId].descriptorMap;
       const descriptors = this.#derivers.deriveUsedDescriptors(
         this.#discoveryData,
         networkId
@@ -1178,58 +1210,25 @@ export function DiscoveryFactory(
             index?: number;
           }
         | undefined;
-      descriptors.forEach(descriptor => {
-        const range =
-          descriptorMap[descriptor]?.range ||
-          ({} as Record<DescriptorIndex, OutputData>);
+      const { txoMap } = this.getUtxosAndBalance({ descriptors });
+      const indexedDescriptor = txoMap[txo];
+      if (indexedDescriptor) {
+        const splitTxo = (str: string): [string, string] => {
+          const lastIndex = str.lastIndexOf('~');
+          if (lastIndex === -1)
+            throw new Error(`Separator '~' not found in string`);
+          return [str.slice(0, lastIndex), str.slice(lastIndex + 1)];
+        };
+        const [descriptor, internalIndex] = splitTxo(indexedDescriptor);
 
-        Object.keys(range).forEach(indexStr => {
-          const isRanged = indexStr !== 'non-ranged';
-          const index = isRanged && Number(indexStr);
+        output = {
+          descriptor,
+          ...(internalIndex === 'non-ranged'
+            ? {}
+            : { index: Number(internalIndex) })
+        };
+      }
 
-          if (!txo) throw new Error('txo not defined');
-          const { utxos, stxos } = this.getUtxosAndBalance({
-            descriptor,
-            ...(isRanged ? { index: Number(indexStr) } : {})
-          });
-          if (utxo) {
-            if (utxos.includes(txo)) {
-              if (output)
-                throw new Error(
-                  `output {${descriptor}, ${index}} is already represented by {${output.descriptor}, ${output.index}} .`
-                );
-              output = {
-                descriptor,
-                ...(isRanged ? { index: Number(indexStr) } : {})
-              };
-            }
-          } else {
-            //Descriptor txos (Unspent txos and Spent txos). Note that
-            //stxos have this format: `${txId}:${vout}:${recipientTxId}:${recipientVin}`
-            //so normalize to Utxo format:
-            const txoSet = new Set([
-              ...utxos,
-              ...stxos.map(stxo => {
-                const [txId, voutStr] = stxo.split(':');
-                if (txId === undefined || voutStr === undefined) {
-                  throw new Error(`Undefined txId or vout for STXO: ${stxo}`);
-                }
-                return `${txId}:${voutStr}`;
-              })
-            ]);
-            if (txoSet.has(txo)) {
-              if (output)
-                throw new Error(
-                  `output {${descriptor}, ${index}} is already represented by {${output.descriptor}, ${output.index}} .`
-                );
-              output = {
-                descriptor,
-                ...(isRanged ? { index: Number(indexStr) } : {})
-              };
-            }
-          }
-        });
-      });
       return output;
     }
 
@@ -1261,8 +1260,7 @@ export function DiscoveryFactory(
     }): Promise<void> {
       const DETECTION_INTERVAL = 3000;
       const DETECT_RETRY_MAX = 20;
-      const tx = this.#derivers.transactionFromHex(txHex);
-      const txId = tx.getId();
+      const { txId } = this.#derivers.transactionFromHex(txHex);
 
       await explorer.push(txHex);
 
@@ -1330,8 +1328,7 @@ export function DiscoveryFactory(
       const txHex = txData.txHex;
       if (!txHex)
         throw new Error('txData must contain complete txHex information');
-      const tx = this.#derivers.transactionFromHex(txHex);
-      const txId = tx.getId();
+      const { tx, txId } = this.#derivers.transactionFromHex(txHex);
       const networkId = getNetworkId(network);
 
       this.#discoveryData = produce(this.#discoveryData, discoveryData => {

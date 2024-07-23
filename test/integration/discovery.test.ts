@@ -15,7 +15,7 @@ import { networks } from 'bitcoinjs-lib';
 import * as secp256k1 from '@bitcoinerlab/secp256k1';
 import * as descriptors from '@bitcoinerlab/descriptors';
 import { mnemonicToSeedSync } from 'bip39';
-import { ElectrumExplorer } from '@bitcoinerlab/explorer';
+import { ElectrumExplorer, EsploraExplorer } from '@bitcoinerlab/explorer';
 const { BIP32 } = descriptors.DescriptorsFactory(secp256k1);
 import { DiscoveryFactory, TxStatus, Account } from '../../dist';
 
@@ -23,9 +23,41 @@ const onAccountUsed = (_account: Account) => {
   //console.log(`TRACE - onAccountUsed(${account}`);
 };
 
-console.log(ElectrumExplorer);
+void ElectrumExplorer;
+void EsploraExplorer;
 for (const network of [networks.bitcoin]) {
-  for (const explorer of [
+  for (const explorerAndInfo of [
+    {
+      explorer: new EsploraExplorer({
+        url: 'https://blockstream.info/api/',
+        requestQueueParams: {
+          //maxConcurrentTasks: 30
+          //maxConcurrentTasks: 5 //default is 10
+          //maxAttemptsForHardErrors: 10 //default is 5
+        }
+      }),
+      info: 'EsploraExplorer'
+    },
+    {
+      explorer: new ElectrumExplorer({
+        //host: 'btc.lastingcoin.net', //time out on bitcoind
+        //host: 'electrum.bitcoinserver.nl', //ETIMEDOUT - this is a small server, low resources.
+        //host: 'fulcrum.not.fyi', //TIMEOUT
+        //host: 'bolt.schulzemic.net', // -> Mega fast
+        //host: 'fulcrum.theuplink.net', //TIMEOUT
+        //host: 'f006.fuchsia.fastwebserver.de', fulcrum fast on recache
+        //host: 'electrum-btc.leblancnet.us', //Electrumx
+        host: 'electrum1.bluewallet.io', //Also quite fast TBH COLD: FirstCall: 29375 ms - SecondCall: 3714 ms - HOT: SIMILAR
+        //port: 50002,
+        port: 443,
+        protocol: 'ssl',
+        network,
+        irrevConfThresh: 3,
+        maxTxPerScriptPubKey: 1000
+      }),
+      info: 'electrum1.bluewallet.io'
+    }
+
     //Some servers: https://1209k.com/bitcoin-eye/ele.php
     //new EsploraExplorer({
     //  url:
@@ -45,28 +77,15 @@ for (const network of [networks.bitcoin]) {
     //  protocol: 'ssl',
     //  network, irrevConfThresh: 3, maxTxPerScriptPubKey: 1000
     //})
-    new ElectrumExplorer({
-      //host: 'btc.lastingcoin.net', //time out on bitcoind
-      //host: 'electrum.bitcoinserver.nl', //ETIMEDOUT - this is a small server, low resources.
-      //host: 'fulcrum.not.fyi', //TIMEOUT
-      //host: 'bolt.schulzemic.net', // -> Mega fast
-      //host: 'fulcrum.theuplink.net', //TIMEOUT
-      //host: 'f006.fuchsia.fastwebserver.de', fulcrum fast on recache
-      //host: 'electrum-btc.leblancnet.us', //Electrumx
-      host: 'electrum1.bluewallet.io', //Also quite fast TBH COLD: FirstCall: 29375 ms - SecondCall: 3714 ms - HOT: SIMILAR
-      //port: 50002,
-      port: 443,
-      protocol: 'ssl',
-      network,
-      irrevConfThresh: 3,
-      maxTxPerScriptPubKey: 1000
-    })
   ])
-    describe(`Discovery on ${network.bech32}`, () => {
+    describe(`Discovery with ${explorerAndInfo.info} on ${network.bech32}`, () => {
       test(
         `Discover Abandon`,
         async () => {
-          const { Discovery } = DiscoveryFactory(explorer, network);
+          const { Discovery } = DiscoveryFactory(
+            explorerAndInfo.explorer,
+            network
+          );
           const masterNode = BIP32.fromSeed(
             mnemonicToSeedSync(
               //'camp foam advice east amount dolphin aspect drift dumb column job absorb' //unused
@@ -76,14 +95,14 @@ for (const network of [networks.bitcoin]) {
             network
           );
           const discovery = new Discovery();
-          await explorer.connect();
+          await explorerAndInfo.explorer.connect();
           console.time('FirstCall');
           await discovery.fetchStandardAccounts({
             masterNode,
             onAccountUsed
           });
           console.timeEnd('FirstCall');
-          console.time('SecondCall');
+          console.time('SecondCall'); //This one should be significanlty faster
           await discovery.fetchStandardAccounts({
             masterNode,
             onAccountUsed
@@ -122,9 +141,9 @@ for (const network of [networks.bitcoin]) {
             //);
           }
           //console.log(JSON.stringify(discovery.getDiscoveryInfo(), null, 2));
-          await explorer.close();
+          await explorerAndInfo.explorer.close();
         },
-        60 * 10 * 1000
+        180 * 10 * 1000 //30 minutes
       );
     });
 }

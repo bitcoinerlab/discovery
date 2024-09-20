@@ -31,6 +31,7 @@ for (const network of [networks.bitcoin]) {
       explorer: new EsploraExplorer({
         url: 'https://blockstream.info/api/',
         requestQueueParams: {
+          maxConcurrentTasks: 10
           //maxConcurrentTasks: 30
           //maxConcurrentTasks: 5 //default is 10
           //maxAttemptsForHardErrors: 10 //default is 5

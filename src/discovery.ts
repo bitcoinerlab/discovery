@@ -1342,11 +1342,9 @@ export function DiscoveryFactory(
             throw new Error(
               `unset index ${index} for descriptor ${descriptor}`
             );
-          if (outputData.txIds.includes(txId))
-            throw new Error(
-              `txId ${txId} was already pushed or part of the discovery object`
-            );
-          outputData.txIds.push(txId);
+          //Note that update is called twice (for inputs and outputs), so
+          //don't push twice when auto-sending from same utxo to same output
+          if (!outputData.txIds.includes(txId)) outputData.txIds.push(txId);
           if (!txMap[txId]) txMap[txId] = txData; //Only add it once
         };
 

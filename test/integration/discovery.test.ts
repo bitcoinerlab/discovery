@@ -142,7 +142,7 @@ for (const network of [networks.bitcoin]) {
             //);
           }
           //console.log(JSON.stringify(discovery.getDiscoveryInfo(), null, 2));
-          await explorerAndInfo.explorer.close();
+          explorerAndInfo.explorer.close();
         },
         180 * 10 * 1000 //30 minutes
       );

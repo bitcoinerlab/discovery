@@ -578,9 +578,9 @@ describe('Discovery on regtest', () => {
   }
 
   for (const { explorer, name } of discoverers) {
-    test(`Closes ${name}`, async () => {
-      expect(async () => {
-        await explorer.close();
+    test(`Closes ${name}`, () => {
+      expect(() => {
+        explorer.close();
       }).not.toThrow();
     });
   }

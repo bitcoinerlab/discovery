@@ -60,7 +60,7 @@ To get started, follow the steps below:
    await explorer.connect();
    const discovery = new Discovery();
    // Perform discovery operations...
-   await explorer.close();
+   explorer.close();
    ```
 
    The [`Discovery` constructor](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html#constructor), `new Discovery({ descriptorsCacheSize, outputsPerDescriptorCacheSize })`, accepts an optional object with two properties that are crucial for managing the application's memory usage:

@@ -44,19 +44,29 @@ for (const network of [networks.bitcoin]) {
         //host: 'btc.lastingcoin.net', //time out on bitcoind
         //host: 'electrum.bitcoinserver.nl', //ETIMEDOUT - this is a small server, low resources.
         //host: 'fulcrum.not.fyi', //TIMEOUT
-        //host: 'bolt.schulzemic.net', // -> Mega fast
-        //host: 'fulcrum.theuplink.net', //TIMEOUT
-        //host: 'f006.fuchsia.fastwebserver.de', fulcrum fast on recache
-        //host: 'electrum-btc.leblancnet.us', //Electrumx
-        host: 'electrum1.bluewallet.io', //Also quite fast TBH COLD: FirstCall: 29375 ms - SecondCall: 3714 ms - HOT: SIMILAR
-        //port: 50002,
-        port: 443,
+        //
+        host: 'bolt.schulzemic.net', // -> Mega fast
+        port: 50002,
         protocol: 'ssl',
+        //
+        //host: 'fulcrum.theuplink.net', //TIMEOUT
+        //host: 'f006.fuchsia.fastwebserver.de', //fulcrum fast on recache
+        //host: 'electrum-btc.leblancnet.us', //Electrumx
+        //
+        //host: 'electrum1.bluewallet.io', //Also quite fast TBH COLD: FirstCall: 29375 ms - SecondCall: 3714 ms - HOT: SIMILAR
+        //port: 443,
+        //protocol: 'ssl',
+        //
+        //
+        //host: 'blockstream.info', //ssl, port 700
+        //port: 700,
+        //protocol: 'ssl',
+        //
         network,
         irrevConfThresh: 3,
         maxTxPerScriptPubKey: 1000
       }),
-      info: 'electrum1.bluewallet.io'
+      info: 'f006.fuchsia.fastwebserver.de'
     }
 
     //Some servers: https://1209k.com/bitcoin-eye/ele.php

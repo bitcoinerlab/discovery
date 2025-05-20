@@ -106,7 +106,7 @@ export type IndexedDescriptor = string;
  * prevtxId:vout. Hovewer, we use a different type name to denote we're dealing
  * here with tx outputs that may have been spent or not
  */
-type Txo = string;
+export type Txo = string;
 export type TxoMap = Record<Txo, IndexedDescriptor>;
 
 /**

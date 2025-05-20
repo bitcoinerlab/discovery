@@ -36,7 +36,8 @@ import {
   TxHex,
   TxAttribution,
   TxWithOrder,
-  TxoMap
+  TxoMap,
+  Txo
 } from './types';
 
 const now = () => Math.floor(Date.now() / 1000);
@@ -1190,7 +1191,7 @@ export function DiscoveryFactory(
       const split = txo.split(':');
       if (utxo && split.length !== 2)
         throw new Error(`Error: invalid utxo: ${utxo}`);
-      if (!utxo && split.length !== 2 && split.length !== 3)
+      if (!utxo && split.length !== 2 && split.length !== 4)
         throw new Error(`Error: invalid txo: ${txo}`);
       const txId = split[0];
       if (!txId) throw new Error(`Error: invalid txo: ${txo}`);
@@ -1210,9 +1211,12 @@ export function DiscoveryFactory(
             index?: number;
           }
         | undefined;
-      const { txoMap } = this.getUtxosAndBalance({ descriptors });
-      const indexedDescriptor = txoMap[txo];
+      const { utxos, txoMap } = this.getUtxosAndBalance({ descriptors });
+      const txoMapKey: Txo = `${txId}:${vout}`; //normalizes txos with 4 parts
+      const indexedDescriptor = txoMap[txoMapKey];
       if (indexedDescriptor) {
+        if (utxo && !utxos.find(currentUtxo => currentUtxo === utxo))
+          return undefined;
         const splitTxo = (str: string): [string, string] => {
           const lastIndex = str.lastIndexOf('~');
           if (lastIndex === -1)
@@ -1243,6 +1247,24 @@ export function DiscoveryFactory(
      * as change. If the range for that index does not exist yet, the `gapLimit`
      * helps to update the descriptor corresponding to a new UTXO for new
      * indices within the gap limit.
+     *
+     * This function may throw an error if the transaction being pushed (`txHex`)
+     * attempts to spend an output that this library instance already considers
+     * spent (or in the mempool to be spent).
+     *
+     * For example, if a wallet UTXO is spent by a transaction (Tx1) which is
+     * then broadcasted and resides in the mempool, a subsequent attempt to push
+     * another transaction (Tx2) that also spends the same original UTXO (e.g.,
+     * for RBF) might exhibit this behavior. While `explorer.push(tx2Hex)`
+     * could successfully broadcast Tx2, the internal update via
+     * `this.addTransaction(tx2Data)` is likely to fail. This occurs because
+     * `addTransaction` will detect that an input of Tx2 is already marked as
+     * spent by Tx1 in the library's state, throwing an error similar to:
+     * `Tx ${txId} was already spent.`.
+     *
+     * To handle such scenarios, it is recommended to wrap calls to `push` in a
+     * try-catch block. If an error is caught, performing a full `fetch`
+     * operation can help resynchronize the internal state with the blockchain.
      *
      */
     async push({
@@ -1310,6 +1332,12 @@ export function DiscoveryFactory(
      * adding new funds as change (for example). If the range for that index
      * does not exist yet, the `gapLimit` helps to update the descriptor
      * corresponding to a new UTXO for new indices within the gap limit.
+     *
+     * This function will throw if the transaction attempts to spend an output
+     * that the library recognizes as a previously spent output (or in the
+     * mempool to be spent).
+     * For more details on this scenario, refer to the `push` method's
+     * documentation.
      */
     addTransaction({
       txData,

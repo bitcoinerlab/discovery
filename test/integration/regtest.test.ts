@@ -14,7 +14,7 @@
 //TODO: test the rest of methods
 import { vaultsTests } from './vaults';
 import { RegtestUtils } from 'regtest-client';
-import { Psbt, networks } from 'bitcoinjs-lib';
+import { Psbt, networks, Transaction } from 'bitcoinjs-lib';
 import * as secp256k1 from '@bitcoinerlab/secp256k1';
 import * as descriptors from '@bitcoinerlab/descriptors';
 import { mnemonicToSeedSync } from 'bip39';
@@ -503,7 +503,8 @@ describe('Discovery on regtest', () => {
       const address = output.getAddress();
 
       //Create a new utxo received in nextIndex
-      await regtestUtils.faucet(address, 100000);
+      const faucetResult = await regtestUtils.faucet(address, 100000);
+      const trackedUtxoString = `${faucetResult.txId}:${faucetResult.vout}`;
       for (let i = 0; i < 10; i++) {
         await discovery.fetch({ descriptor });
         if (discovery.getUtxos({ descriptor }).length > initialNUtxos) break;
@@ -515,6 +516,16 @@ describe('Discovery on regtest', () => {
       const nextNextIndex = discovery.getNextIndex({ descriptor });
 
       expect(nextNextIndex).toBe(nextIndex + 1);
+
+      // Test getDescriptor for the UNSPENT trackedUtxoString
+      let descriptorInfoUnspent = discovery.getDescriptor({
+        utxo: trackedUtxoString
+      });
+      expect(descriptorInfoUnspent).toEqual({ descriptor, index: nextIndex });
+      descriptorInfoUnspent = discovery.getDescriptor({
+        txo: trackedUtxoString
+      });
+      expect(descriptorInfoUnspent).toEqual({ descriptor, index: nextIndex });
 
       const { utxos, balance } = discovery.getUtxosAndBalance({ descriptor });
 
@@ -557,6 +568,22 @@ describe('Discovery on regtest', () => {
       const txHex = psbt.extractTransaction(true).toHex();
       await discovery.push({ txHex });
       const nextNextNextIndex = discovery.getNextIndex({ descriptor });
+      const spendingTx = Transaction.fromHex(txHex);
+      const spendingTxId = spendingTx.getId();
+      let spendingVin = -1;
+      for (const [i, input] of spendingTx.ins.entries()) {
+        const prevTxId = Buffer.from(input.hash).reverse().toString('hex');
+        if (
+          prevTxId === faucetResult.txId &&
+          input.index === faucetResult.vout
+        ) {
+          spendingVin = i;
+          break;
+        }
+      }
+      expect(spendingVin).not.toBe(-1); // Ensure we found the spending input
+      const fourPartTxoString = `${trackedUtxoString}:${spendingTxId}:${spendingVin}`;
+
       expect(nextNextNextIndex).toBe(nextNextIndex + 1);
       expect(discovery.getUtxosAndBalance({ descriptor }).balance).toBe(
         finalBalance
@@ -566,6 +593,19 @@ describe('Discovery on regtest', () => {
       //Now really fetch it and make sure the push routine already set all the
       //relevant data, even if a fetch was not involved:
       await discovery.fetch({ descriptor });
+
+      // Test getDescriptor for the SPENT trackedUtxoString
+      let descriptorInfoSpent = discovery.getDescriptor({
+        utxo: trackedUtxoString
+      });
+      expect(descriptorInfoSpent).toBeUndefined(); // Should be undefined as it's spent
+      descriptorInfoSpent = discovery.getDescriptor({
+        txo: trackedUtxoString
+      });
+      expect(descriptorInfoSpent).toEqual({ descriptor, index: nextIndex });
+      // Test with 4-part txo string for the spent output
+      descriptorInfoSpent = discovery.getDescriptor({ txo: fourPartTxoString });
+      expect(descriptorInfoSpent).toEqual({ descriptor, index: nextIndex });
       expect(nextNextNextIndex).toBe(nextNextIndex + 1);
       expect(discovery.getUtxosAndBalance({ descriptor }).balance).toBe(
         finalBalance

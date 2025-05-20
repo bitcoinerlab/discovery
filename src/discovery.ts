@@ -39,6 +39,11 @@ import {
   TxoMap,
   Txo
 } from './types';
+type Conflict = {
+  descriptor: Descriptor;
+  txo: Txo;
+  index?: number;
+};
 
 const now = () => Math.floor(Date.now() / 1000);
 
@@ -1237,35 +1242,32 @@ export function DiscoveryFactory(
     }
 
     /**
-     * Pushes a transaction to the network and updates the internal state
-     * accordingly. This function ensures that the transaction is pushed,
-     * verifies its presence in the mempool, and updates the internal
-     * `discoveryData` to include the new transaction.
+     * Pushes a transaction to the network and updates the internal state.
      *
-     * The `gapLimit` parameter is essential for managing descriptor discovery.
-     * When pushing a transaction, there is a possibility of receiving new funds
-     * as change. If the range for that index does not exist yet, the `gapLimit`
-     * helps to update the descriptor corresponding to a new UTXO for new
-     * indices within the gap limit.
+     * This function first broadcasts the transaction using the configured explorer.
+     * It then attempts to update the internal `discoveryData` by calling
+     * `addTransaction`.
      *
-     * This function may throw an error if the transaction being pushed (`txHex`)
-     * attempts to spend an output that this library instance already considers
-     * spent (or in the mempool to be spent).
+     * If `addTransaction` reports that one or more inputs of the pushed transaction
+     * were already considered spent by other transactions in the library's records
+     * (e.g., in an RBF scenario or a double-spend attempt already known to the
+     * library), `push` will automatically attempt to synchronize the state. It
+     * does this by calling `fetch` on all unique descriptors associated with the
+     * conflicting input(s). This helps ensure the library's state reflects the
+     * most current information from the blockchain/mempool regarding these conflicts.
      *
-     * For example, if a wallet UTXO is spent by a transaction (Tx1) which is
-     * then broadcasted and resides in the mempool, a subsequent attempt to push
-     * another transaction (Tx2) that also spends the same original UTXO (e.g.,
-     * for RBF) might exhibit this behavior. While `explorer.push(tx2Hex)`
-     * could successfully broadcast Tx2, the internal update via
-     * `this.addTransaction(tx2Data)` is likely to fail. This occurs because
-     * `addTransaction` will detect that an input of Tx2 is already marked as
-     * spent by Tx1 in the library's state, throwing an error similar to:
-     * `Tx ${txId} was already spent.`.
+     * The `gapLimit` parameter is used both when `addTransaction` is called and
+     * during any subsequent automatic `fetch` operation triggered by conflicts.
+     * It helps discover new outputs (e.g., change addresses) that might become
+     * active due to the transaction.
      *
-     * To handle such scenarios, it is recommended to wrap calls to `push` in a
-     * try-catch block. If an error is caught, performing a full `fetch`
-     * operation can help resynchronize the internal state with the blockchain.
-     *
+     * Note: The success of broadcasting the transaction via `explorer.push(txHex)`
+     * depends on the network and node policies. Even if broadcast is successful,
+     * the transaction might not be immediately visible in the mempool or might be
+     * replaced. A warning is logged if the transaction is not found in the
+     * mempool shortly after being pushed. The final state in the library will
+     * reflect the outcome of the internal `addTransaction` call and any
+     * automatic synchronization that occurred.
      */
     async push({
       txHex,
@@ -1287,24 +1289,52 @@ export function DiscoveryFactory(
       await explorer.push(txHex);
 
       //Now, make sure it made it to the mempool:
-      let found = false;
+      let foundInMempool = false;
       for (let i = 0; i < DETECT_RETRY_MAX; i++) {
         if (await explorer.fetchTx(txId)) {
-          found = true;
+          foundInMempool = true;
           break;
         }
         await new Promise(resolve => setTimeout(resolve, DETECTION_INTERVAL));
       }
 
       const txData = { irreversible: false, blockHeight: 0, txHex };
-      this.addTransaction({ txData, gapLimit });
-      if (found === false)
-        console.warn(
-          `txId ${txId} was pushed. However, it was then not found in the mempool. It has been set as part of the discoveryData anyway.`
+      const addResult = this.addTransaction({ txData, gapLimit });
+
+      let syncPerformed = false;
+      if (
+        !addResult.success &&
+        addResult.reason === 'INPUTS_ALREADY_SPENT' &&
+        addResult.conflicts.length > 0
+      ) {
+        // A conflict occurred: one or more inputs of the pushed transaction were already
+        // considered spent by other transactions in our records.
+        // Fetch all unique descriptors that hold the conflicting TXOs to sync their state.
+        const uniqueDescriptorsToSync = Array.from(
+          new Set(addResult.conflicts.map(c => c.descriptor))
         );
+        if (uniqueDescriptorsToSync.length > 0) {
+          await this.fetch({ descriptors: uniqueDescriptorsToSync, gapLimit });
+          syncPerformed = true;
+        }
+        // After fetching, the state for the conflicting descriptors is updated.
+        // The originally pushed transaction might or might not be the one that "won".
+      }
+
+      if (syncPerformed) {
+        console.warn(
+          `txId ${txId}: Input conflict(s) detected; state synchronization was performed for affected descriptors. The library state reflects this outcome.`
+        );
+      }
+
+      if (!foundInMempool) {
+        console.warn(
+          `txId ${txId}: Pushed transaction was not found in the mempool immediately after broadcasting.`
+        );
+      }
     }
 
-    /*
+    /**
      * Given a transaction it updates the internal `discoveryData` state to
      * include it.
      *
@@ -1333,11 +1363,32 @@ export function DiscoveryFactory(
      * does not exist yet, the `gapLimit` helps to update the descriptor
      * corresponding to a new UTXO for new indices within the gap limit.
      *
-     * This function will throw if the transaction attempts to spend an output
-     * that the library recognizes as a previously spent output (or in the
-     * mempool to be spent).
-     * For more details on this scenario, refer to the `push` method's
-     * documentation.
+     * This function updates the internal `discoveryData` state to include the
+     * provided transaction, but only if it doesn't attempt to spend outputs
+     * already considered spent by the library.
+     *
+     * It first checks all inputs of the transaction. If any input corresponds to
+     * a `txo` (a previously known output) that is not a current `utxo`
+     * (i.e., it's already considered spent by another transaction in the
+     * library's records), this function will not modify the library state.
+     * Instead, it will return an object detailing all such conflicting inputs.
+     * This allows the caller (e.g., the `push` method) to handle these
+     * conflicts, for instance, by re-fetching the state of all affected descriptors.
+     *
+     * If no such input conflicts are found, the transaction is processed:
+     * its details are added to the `txMap`, and relevant `txId`s are associated
+     * with the `OutputData` of both its inputs (if owned) and outputs (if owned).
+     *
+     * For other types of errors (e.g., invalid input data), it may still throw.
+     *
+     * Refer to the `push` method's documentation for how it utilizes this
+     * return status for automatic state synchronization.
+     *
+     * @returns An object indicating the outcome:
+     *          - `{ success: true }` if the transaction was added without conflicts.
+     *          - `{ success: false; reason: 'INPUTS_ALREADY_SPENT'; conflicts: Array<{ descriptor: Descriptor; txo: Utxo; index?: number }> }`
+     *            if one or more inputs of the transaction were already considered spent.
+     *            `conflicts` contains an array of all such detected conflicts.
      */
     addTransaction({
       txData,
@@ -1352,13 +1403,50 @@ export function DiscoveryFactory(
        * The gap limit for descriptor discovery. Defaults to 20.
        */
       gapLimit?: number;
-    }): void {
+    }):
+      | { success: true }
+      | {
+          success: false;
+          reason: 'INPUTS_ALREADY_SPENT';
+          conflicts: Array<Conflict>;
+        } {
       const txHex = txData.txHex;
       if (!txHex)
         throw new Error('txData must contain complete txHex information');
       const { tx, txId } = this.#derivers.transactionFromHex(txHex);
       const networkId = getNetworkId(network);
 
+      const conflicts: Array<Conflict> = [];
+
+      // First pass: Check all inputs for conflicts without modifying state yet.
+      for (let vin = 0; vin < tx.ins.length; vin++) {
+        const input = tx.ins[vin];
+        if (!input) throw new Error(`Error: invalid input for ${txId}:${vin}`);
+        const prevTxId = Buffer.from(input.hash).reverse().toString('hex');
+        const prevVout = input.index;
+        const prevUtxo: Utxo = `${prevTxId}:${prevVout}`;
+
+        const isSpendingKnownUtxo = this.getDescriptor({ utxo: prevUtxo });
+        if (!isSpendingKnownUtxo) {
+          // Not spending a known UTXO, check if it's spending a known TXO (already spent)
+          const txoDescriptorInfo = this.getDescriptor({ txo: prevUtxo });
+          if (txoDescriptorInfo) {
+            const conflict: Conflict = {
+              descriptor: txoDescriptorInfo.descriptor,
+              txo: prevUtxo
+            };
+            if (txoDescriptorInfo.index !== undefined)
+              conflict.index = txoDescriptorInfo.index;
+            conflicts.push(conflict);
+          }
+        }
+      }
+
+      if (conflicts.length > 0) {
+        return { success: false, reason: 'INPUTS_ALREADY_SPENT', conflicts };
+      }
+
+      // Second pass: No conflicts found, proceed to update discoveryData.
       this.#discoveryData = produce(this.#discoveryData, discoveryData => {
         const txMap = discoveryData[networkId].txMap;
         const update = (descriptor: Descriptor, index: DescriptorIndex) => {
@@ -1376,17 +1464,17 @@ export function DiscoveryFactory(
           if (!txMap[txId]) txMap[txId] = txData; //Only add it once
         };
 
-        // search for inputs
+        // Process inputs (we know they are valid UTXOs or external)
         for (let vin = 0; vin < tx.ins.length; vin++) {
           const input = tx.ins[vin];
           if (!input)
             throw new Error(`Error: invalid input for ${txId}:${vin}`);
           //Note we create a new Buffer since reverse() mutates the Buffer
           const prevTxId = Buffer.from(input.hash).reverse().toString('hex');
-          const prevVout = input.index;
+          const prevVout = input!.index;
           const prevUtxo: Utxo = `${prevTxId}:${prevVout}`;
           const extendedDescriptor = this.getDescriptor({ utxo: prevUtxo });
-          if (extendedDescriptor)
+          if (extendedDescriptor) {
             //This means this tx is spending an utxo tracked by this discovery instance
             update(
               extendedDescriptor.descriptor,
@@ -1394,11 +1482,10 @@ export function DiscoveryFactory(
                 ? 'non-ranged'
                 : extendedDescriptor.index
             );
-          else if (this.getDescriptor({ txo: prevUtxo }))
-            throw new Error(`Tx ${txId} was already spent.`);
+          }
         }
 
-        // search for outputs
+        // Process outputs
         for (let vout = 0; vout < tx.outs.length; vout++) {
           const nextScriptPubKey = tx.outs[vout]?.script;
           if (!nextScriptPubKey)
@@ -1408,12 +1495,14 @@ export function DiscoveryFactory(
             scriptPubKey: nextScriptPubKey,
             gapLimit
           });
-          if (descriptorWithIndex)
+          if (descriptorWithIndex) {
             //This means this tx is sending funds to a scriptPubKey tracked by
             //this discovery instance
             update(descriptorWithIndex.descriptor, descriptorWithIndex.index);
+          }
         }
       });
+      return { success: true };
     }
 
     /**

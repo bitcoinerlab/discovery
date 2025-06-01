@@ -425,6 +425,7 @@ export function DiscoveryFactory(
       gapLimit = DEFAULT_GAP_LIMIT,
       onUsed,
       onChecking,
+      onProgress,
       next
     }: {
       /**
@@ -460,7 +461,7 @@ export function DiscoveryFactory(
        */
       onUsed?: (
         descriptorOrDescriptors: Descriptor | Array<Descriptor>
-      ) => void;
+      ) => Promise<void>;
       /**
        * Optional callback function invoked at the beginning of checking a descriptor
        * to determine its usage status. This can be used to signal the start of a
@@ -469,7 +470,17 @@ export function DiscoveryFactory(
        */
       onChecking?: (
         descriptorOrDescriptors: Descriptor | Array<Descriptor>
-      ) => void;
+      ) => Promise<void>;
+      /**
+       * Optional callback function invoked for each output (address index) being
+       * checked for a descriptor. This is called before fetching data for the output.
+       * @param descriptor - The descriptor being processed.
+       * @param index - The index of the output within the descriptor.
+       */
+      onProgress?: (
+        descriptor: Descriptor,
+        index: DescriptorIndex
+      ) => Promise<void>;
       /**
        * Optional function triggered immediately after detecting that a descriptor's output
        * has been used previously. By invoking this function, it's possible to initiate
@@ -488,7 +499,7 @@ export function DiscoveryFactory(
         (descriptors || !descriptor?.includes('*'))
       )
         throw new Error(`Don't pass index`);
-      if (onChecking) onChecking(descriptorOrDescriptors);
+      if (onChecking) await onChecking(descriptorOrDescriptors);
       const canonicalInput = canonicalize(descriptorOrDescriptors, network);
       let nextPromise: Promise<void> | undefined = undefined;
       let usedOutput = false;
@@ -525,6 +536,12 @@ export function DiscoveryFactory(
           const outputsToFetch = isGapSearch ? gapLimit - gap : 1;
           const fetchPromises = [];
           for (let i = 0; i < outputsToFetch; i++) {
+            const currentIndexToFetch = isRanged
+              ? indexEvaluated + i
+              : 'non-ranged';
+            if (onProgress) {
+              await onProgress(descriptor, currentIndexToFetch);
+            }
             fetchPromises.push(
               this.#fetchOutput({
                 descriptor,
@@ -543,7 +560,7 @@ export function DiscoveryFactory(
               gap = 0;
               if (next && !nextPromise) nextPromise = next();
               if (onUsed && usedOutputNotified === false) {
-                onUsed(descriptorOrDescriptors);
+                await onUsed(descriptorOrDescriptors);
                 usedOutputNotified = true;
               }
             } else {
@@ -691,7 +708,8 @@ export function DiscoveryFactory(
       masterNode,
       gapLimit = DEFAULT_GAP_LIMIT,
       onAccountUsed,
-      onAccountChecking
+      onAccountChecking,
+      onAccountProgress
     }: {
       /**
        * The master node to discover accounts from.
@@ -710,7 +728,7 @@ export function DiscoveryFactory(
        *
        * @param account - The external descriptor of the account that has been determined to have prior transaction activity.
        */
-      onAccountUsed?: (account: Account) => void;
+      onAccountUsed?: (account: Account) => Promise<void>;
       /**
        * Optional callback function invoked just as the system starts to evaluate the transaction
        * activity of an {@link Account account} (associated with the master node).
@@ -719,7 +737,17 @@ export function DiscoveryFactory(
        *
        * @param account - The external descriptor of the account that is currently being evaluated for transaction activity.
        */
-      onAccountChecking?: (account: Account) => void;
+      onAccountChecking?: (account: Account) => Promise<void>;
+      /**
+       * Optional callback function invoked for each output (address index) being
+       * checked for an account's descriptors (external and internal).
+       * @param data - Object containing account, descriptor, and index.
+       */
+      onAccountProgress?: (data: {
+        account: Account;
+        descriptor: Descriptor;
+        index: number;
+      }) => Promise<void>;
     }) {
       const discoveryTasks = [];
       const { pkhBIP32, shWpkhBIP32, wpkhBIP32 } = scriptExpressions;
@@ -739,15 +767,27 @@ export function DiscoveryFactory(
           const account = descriptors[0]!;
           //console.log('STANDARD', { descriptors, gapLimit, account });
           accountNumber++;
-          const onUsed = onAccountUsed && (() => onAccountUsed(account));
+          const onUsed =
+            onAccountUsed && (async () => await onAccountUsed(account));
           const onChecking =
-            onAccountChecking && (() => onAccountChecking(account));
+            onAccountChecking && (async () => await onAccountChecking(account));
+          const onProgress =
+            onAccountProgress &&
+            (async (descriptor: Descriptor, index: DescriptorIndex) => {
+              if (typeof index !== 'number')
+                throw new Error(
+                  'fetchStandardAccounts shall use only ranged descriptors'
+                );
+              // Standard accounts use ranged descriptors, so index will be a number.
+              await onAccountProgress({ account, descriptor, index });
+            });
           await this.fetch({
             descriptors,
             gapLimit,
             next,
             ...(onUsed ? { onUsed } : {}),
-            ...(onChecking ? { onChecking } : {})
+            ...(onChecking ? { onChecking } : {}),
+            ...(onProgress ? { onProgress } : {})
           });
         };
         discoveryTasks.push(next());

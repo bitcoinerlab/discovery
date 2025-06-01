@@ -19,7 +19,7 @@ import { ElectrumExplorer, EsploraExplorer } from '@bitcoinerlab/explorer';
 const { BIP32 } = descriptors.DescriptorsFactory(secp256k1);
 import { DiscoveryFactory, TxStatus, Account } from '../../dist';
 
-const onAccountUsed = (_account: Account) => {
+const onAccountUsed = async (_account: Account) => {
   //console.log(`TRACE - onAccountUsed(${account}`);
 };
 

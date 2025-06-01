@@ -1,6 +1,6 @@
 # Bitcoin Descriptor Blockchain Retrieval Library
 
-The @bitcoinerlab/discovery library, written in TypeScript, provides a method for retrieving blockchain information essential in Bitcoin wallet development and other applications that require interaction with the Bitcoin blockchain. This library enables querying of data using the *Bitcoin descriptors* syntax, facilitating retrieval of blockchain data such as balance, UTXOs, and transaction history.
+The @bitcoinerlab/discovery library, written in TypeScript, provides a method for retrieving blockchain information essential in Bitcoin wallet development and other applications that require interaction with the Bitcoin blockchain. This library enables querying of data using the _Bitcoin descriptors_ syntax, facilitating retrieval of blockchain data such as balance, UTXOs, and transaction history.
 
 ## Features
 
@@ -19,18 +19,19 @@ The @bitcoinerlab/discovery library, written in TypeScript, provides a method fo
 To get started, follow the steps below:
 
 1. **Install the Libraries**:
+
    ```bash
    npm install @bitcoinerlab/explorer @bitcoinerlab/discovery bitcoinjs-lib
    ```
 
-2. **Create the Explorer Client Instance**: 
-    The explorer client is an interface to communicate with the blockchain. You can create an instance to an Electrum server or an Esplora server.
+2. **Create the Explorer Client Instance**:
+   The explorer client is an interface to communicate with the blockchain. You can create an instance to an Electrum server or an Esplora server.
 
-    - **Esplora** is a Blockstream-developed open-source explorer for the Bitcoin blockchain. It offers an HTTP REST API that allows interaction with the Bitcoin blockchain.
+   - **Esplora** is a Blockstream-developed open-source explorer for the Bitcoin blockchain. It offers an HTTP REST API that allows interaction with the Bitcoin blockchain.
 
-    - **Electrum** is a popular Bitcoin wallet that also provides server software (Electrum server) that facilitates communication between clients and the Bitcoin network. The Electrum server uses a different protocol than the standard Bitcoin protocol used by Esplora.
+   - **Electrum** is a popular Bitcoin wallet that also provides server software (Electrum server) that facilitates communication between clients and the Bitcoin network. The Electrum server uses a different protocol than the standard Bitcoin protocol used by Esplora.
 
-    The `@bitcoinerlab/explorer` library provides two classes for creating the explorer client instances: `EsploraExplorer` and `ElectrumExplorer`.
+   The `@bitcoinerlab/explorer` library provides two classes for creating the explorer client instances: `EsploraExplorer` and `ElectrumExplorer`.
 
    ```typescript
    import { EsploraExplorer, ElectrumExplorer } from '@bitcoinerlab/explorer';
@@ -46,9 +47,9 @@ To get started, follow the steps below:
    });
    ```
 
-    In the code snippet, we create instances for both an Electrum client and an Esplora client using the `ElectrumExplorer` and `EsploraExplorer` classes, respectively.
+   In the code snippet, we create instances for both an Electrum client and an Esplora client using the `ElectrumExplorer` and `EsploraExplorer` classes, respectively.
 
-    Please refer to the [Explorer documentation](https://github.com/bitcoinerlab/explorer) for more details.
+   Please refer to the [Explorer documentation](https://github.com/bitcoinerlab/explorer) for more details.
 
 3. **Create the Discovery Class**:
    After creating the explorer client instance, you can create the `Discovery` class, which you will use to query the Blockchain. The `Discovery` class is created using the [`DiscoveryFactory` function](https://bitcoinerlab.com/modules/discovery/api/functions/DiscoveryFactory.html), passing the previously created explorer instance.
@@ -72,89 +73,113 @@ To get started, follow the steps below:
 
    **Note**: The `connect` method must be run before starting any data queries to the blockchain, and the `close` method should be run after you have completed all necessary queries and no longer need to query the blockchain.
 
-
 4. **Using the Discovery Methods**
 
-   Once you've instantiated the `Discovery` class, you have access to [a variety of methods](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html#fetch) to fetch and derive blockchain data from *Bitcoin Output Descriptors*.
-   
+   Once you've instantiated the `Discovery` class, you have access to [a variety of methods](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html#fetch) to fetch and derive blockchain data from _Bitcoin Output Descriptors_.
+
    Descriptor expressions are a simple language used to describe collections of Bitcoin output scripts. They enable the `Discovery` class to fetch detailed blockchain information about specific outputs. For more comprehensive insights into descriptor expressions, refer to the [BitcoinerLab descriptors module](https://bitcoinerlab.com/modules/descriptors).
-   
+
    To initiate (or update) the data retrieval process for addresses associated with a descriptor, whether ranged or fixed, execute [`fetch`](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html#fetch):
 
    ```typescript
-   await discovery.fetch({ descriptor });
+   await discovery.fetch({
+     descriptor,
+     async onUsed(descriptorOrDescriptors) {
+       // Optional: Logic when a used output is found.
+     },
+     async onChecking(descriptorOrDescriptors) {
+       // Optional: Logic when checking of a descriptor begins.
+     },
+     async onProgress(descriptor, index) {
+       // Optional: Logic for each output being processed.
+     }
+   });
    ```
-   This method retrieves all associated outputs for a given descriptor. If the descriptor is ranged, you can also specify an index to target a specific output within that range. When dealing with multiple descriptors, use the `descriptors` parameter with an array of strings. See the [`fetch` API documentation](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html#fetch) for detailed usage.
-   
+
+   This method retrieves all associated outputs for a given descriptor. If the descriptor is ranged, you can also specify an index to target a specific output within that range. When dealing with multiple descriptors, use the `descriptors` parameter with an array of strings.
+   The `onUsed`, `onChecking`, and `onProgress` callbacks are optional and asynchronous, allowing for `await` operations within them (e.g., for implementing sleep routines to manage UI responsiveness in intensive operations).
+   See the [`fetch` API documentation](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html#fetch) for detailed usage.
+
    **Note**: To ensure accurate data computations, fetch descriptor data (using the query above) before employing methods like `getUtxos`, `getBalance`, or others described below. An error will alert you when attempting to derive data from descriptors that have not been previously fetched. This ensures you do not compute data based on incomplete information. If you are unsure whether a descriptor has been previously fetched or need to ensure that the data is up-to-date, use [`whenFetched`](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html#whenFetched):
-   
+
    ```typescript
    const fetchStatus = discovery.whenFetched({ descriptor });
    if (fetchStatus === undefined) {
      // The descriptor has not been fetched.
    } else {
-     const secondsSinceFetched = (Date.now() - fetchStatus.timeFetched * 1000) / 1000;
+     const secondsSinceFetched =
+       (Date.now() - fetchStatus.timeFetched * 1000) / 1000;
      if (secondsSinceFetched > SOME_TIME_THRESHOLD) {
        // The descriptor data is outdated and may need to be fetched again.
      }
    }
    ```
-    
+
    If fetch status is verified or known, proceed directly to the data derivation methods:
 
    - **Deriving UTXOs**:
      Use [`getUtxos`](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html#getUtxos) to derive all unspent transaction outputs (UTXOs) from the fetched data:
+
      ```typescript
      const { utxos } = discovery.getUtxos({ descriptor });
      ```
-   
+
    - **Calculating Balance**:
      Use [`getBalance`](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html#getBalance) to calculate the total balance from the fetched data:
+
      ```typescript
      const { balance } = discovery.getBalance({ descriptor });
      ```
-   
+
    Other methods to derive or calculate data include:
-   
-   - **Determining the Next Index**: 
+
+   - **Determining the Next Index**:
      For ranged descriptor expressions, determine the next unused index:
+
      ```typescript
      const index = discovery.getNextIndex({ descriptor });
      ```
+
      See the [`getNextIndex` API documentation](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html#getNextIndex) for detailed usage.
-   
    - **Identifying Descriptors by UTXO**:
      Find the descriptor that corresponds to a specific UTXO using [`getDescriptor`](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html#getDescriptor):
+
      ```typescript
      const descriptorData = discovery.getDescriptor({ utxo });
      // Returns: { descriptor, index? }, with 'index' provided for ranged descriptors.
      ```
+
      This is particularly useful for transaction preparation when you need to instantiate a `new Output({ descriptor })` using the descriptor associated with the UTXO, as facilitated by the [@bitcoinerlab/descriptors](https://bitcoinerlab.com/modules/descriptors) library.
-   
    - **Accessing Transaction History**:
      Access all transactions associated with a specific descriptor expression (or an array of them):
+
      ```typescript
      const history = discovery.getHistory({ descriptors });
      ```
+
      Refer to the [`getHistory` API](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html#getHistory) for the details.
-   
    - **Fetching Standard Accounts**:
-     The [`fetchStandardAccounts`](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html#fetchStandardAccounts) method is a helper that automates the common task of retrieving or updating standard accounts (pkh, sh(wpkh), wpkh) associated with a master node. This method saves developers time and eliminates repetitive coding tasks.
-   
+     The [`fetchStandardAccounts`](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html#fetchStandardAccounts) method is a helper that automates the common task of retrieving or updating standard accounts (pkh, sh(wpkh), wpkh, and tr) associated with a master node. This method saves developers time and eliminates repetitive coding tasks.
+
      Efficiently retrieve wallet accounts with:
+
      ```typescript
      await discovery.fetchStandardAccounts({
        masterNode,
        gapLimit: 20, // The default gap limit
-       onAccountUsed: (account) => {
+       async onAccountUsed(account) {
          // Optional: Trigger app updates when an account with transactions is found.
        },
-       onAccountChecking: (account) => {
+       async onAccountChecking(account) {
          // Optional: Implement app-specific logic when the check for an account begins.
+       },
+       async onAccountProgress({ account, descriptor, index }) {
+         // Optional: Logic for each output (external or internal) being processed for an account.
        }
      });
      ```
-     Implement the `onAccountUsed` and `onAccountChecking` callbacks as needed for your app's functionality, such as UI updates or logging.
+
+     Implement the `onAccountUsed`, `onAccountChecking`, and `onAccountProgress` callbacks (all asynchronous) as needed for your app's functionality, such as UI updates or logging.
 
    The methods listed above are only a part of all the `Discovery` class's functionality. For a complete overview of all available methods and their usage, refer to [the API documentation](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html).
 
@@ -167,7 +192,6 @@ npm run docs
 ```
 
 However, if you'd prefer to skip this step, the API documentation has already been compiled and is available for reference at [bitcoinerlab.com/modules/discovery/api](https://bitcoinerlab.com/modules/discovery/api).
-
 
 ## Authors and Contributors
 

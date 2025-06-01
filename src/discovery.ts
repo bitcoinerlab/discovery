@@ -480,7 +480,7 @@ export function DiscoveryFactory(
       onProgress?: (
         descriptor: Descriptor,
         index: DescriptorIndex
-      ) => Promise<void>;
+      ) => Promise<boolean | void>;
       /**
        * Optional function triggered immediately after detecting that a descriptor's output
        * has been used previously. By invoking this function, it's possible to initiate
@@ -535,12 +535,20 @@ export function DiscoveryFactory(
           //batch-request the remaining outputs until gapLimit:
           const outputsToFetch = isGapSearch ? gapLimit - gap : 1;
           const fetchPromises = [];
+          let abortCurrentDescriptorLoop = false;
           for (let i = 0; i < outputsToFetch; i++) {
             const currentIndexToFetch = isRanged
               ? indexEvaluated + i
               : 'non-ranged';
             if (onProgress) {
-              await onProgress(descriptor, currentIndexToFetch);
+              const continueProcessing = await onProgress(
+                descriptor,
+                currentIndexToFetch
+              );
+              if (continueProcessing === false) {
+                abortCurrentDescriptorLoop = true;
+                break;
+              }
             }
             fetchPromises.push(
               this.#fetchOutput({
@@ -548,6 +556,11 @@ export function DiscoveryFactory(
                 ...(isRanged ? { index: indexEvaluated + i } : {})
               })
             );
+          }
+
+          if (abortCurrentDescriptorLoop && fetchPromises.length === 0) {
+            // This case happens if onProgress returned false before any fetchPromises were added.
+            break;
           }
 
           //Promise.all keeps the order in results
@@ -568,6 +581,9 @@ export function DiscoveryFactory(
             }
             indexEvaluated++;
             outputsFetched++;
+          }
+          if (abortCurrentDescriptorLoop) {
+            break;
           }
         }
         this.#discoveryData = produce(this.#discoveryData, discoveryData => {
@@ -747,7 +763,7 @@ export function DiscoveryFactory(
         account: Account;
         descriptor: Descriptor;
         index: number;
-      }) => Promise<void>;
+      }) => Promise<boolean | void>;
     }) {
       const discoveryTasks = [];
       const { pkhBIP32, shWpkhBIP32, wpkhBIP32, trBIP32 } = scriptExpressions;
@@ -771,16 +787,26 @@ export function DiscoveryFactory(
             onAccountUsed && (async () => await onAccountUsed(account));
           const onChecking =
             onAccountChecking && (async () => await onAccountChecking(account));
-          const onProgress =
-            onAccountProgress &&
-            (async (descriptor: Descriptor, index: DescriptorIndex) => {
-              if (typeof index !== 'number')
-                throw new Error(
-                  'fetchStandardAccounts shall use only ranged descriptors'
-                );
-              // Standard accounts use ranged descriptors, so index will be a number.
-              await onAccountProgress({ account, descriptor, index });
-            });
+          const onProgress = onAccountProgress
+            ? async (
+                descriptor: Descriptor,
+                index: DescriptorIndex
+              ): Promise<boolean | void> => {
+                if (typeof index !== 'number')
+                  throw new Error(
+                    'fetchStandardAccounts shall use only ranged descriptors'
+                  );
+                // Standard accounts use ranged descriptors, so index will be a number.
+                const userCallbackResult = await onAccountProgress({
+                  account,
+                  descriptor,
+                  index
+                });
+                if (userCallbackResult === false) {
+                  return false; // Propagate abort signal
+                }
+              }
+            : undefined;
           await this.fetch({
             descriptors,
             gapLimit,

@@ -92,12 +92,13 @@ To get started, follow the steps below:
      },
      async onProgress(descriptor, index) {
        // Optional: Logic for each output being processed.
+       // If this callback returns `false`, the fetching process for the current descriptor will be aborted.
      }
    });
    ```
 
    This method retrieves all associated outputs for a given descriptor. If the descriptor is ranged, you can also specify an index to target a specific output within that range. When dealing with multiple descriptors, use the `descriptors` parameter with an array of strings.
-   The `onUsed`, `onChecking`, and `onProgress` callbacks are optional and asynchronous, allowing for `await` operations within them (e.g., for implementing sleep routines to manage UI responsiveness in intensive operations).
+   The `onUsed`, `onChecking`, and `onProgress` callbacks are optional and asynchronous, allowing for `await` operations within them (e.g., for implementing sleep routines to manage UI responsiveness in intensive operations). The `onProgress` callback can return `false` to abort the discovery for the current descriptor.
    See the [`fetch` API documentation](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html#fetch) for detailed usage.
 
    **Note**: To ensure accurate data computations, fetch descriptor data (using the query above) before employing methods like `getUtxos`, `getBalance`, or others described below. An error will alert you when attempting to derive data from descriptors that have not been previously fetched. This ensures you do not compute data based on incomplete information. If you are unsure whether a descriptor has been previously fetched or need to ensure that the data is up-to-date, use [`whenFetched`](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html#whenFetched):
@@ -175,11 +176,14 @@ To get started, follow the steps below:
        },
        async onAccountProgress({ account, descriptor, index }) {
          // Optional: Logic for each output (external or internal) being processed for an account.
+         // If this callback returns `false`, the fetching process for the current descriptor 
+         // (external or internal) of the current account will be aborted.
+         // This will not stop the discovery of other accounts or other script types.
        }
      });
      ```
 
-     Implement the `onAccountUsed`, `onAccountChecking`, and `onAccountProgress` callbacks (all asynchronous) as needed for your app's functionality, such as UI updates or logging.
+     Implement the `onAccountUsed`, `onAccountChecking`, and `onAccountProgress` callbacks (all asynchronous) as needed for your app's functionality, such as UI updates or logging. The `onAccountProgress` callback can return `false` to abort the discovery for the current descriptor of the current account.
 
    The methods listed above are only a part of all the `Discovery` class's functionality. For a complete overview of all available methods and their usage, refer to [the API documentation](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html).
 

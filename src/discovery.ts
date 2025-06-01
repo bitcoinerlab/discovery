@@ -750,9 +750,9 @@ export function DiscoveryFactory(
       }) => Promise<void>;
     }) {
       const discoveryTasks = [];
-      const { pkhBIP32, shWpkhBIP32, wpkhBIP32 } = scriptExpressions;
+      const { pkhBIP32, shWpkhBIP32, wpkhBIP32, trBIP32 } = scriptExpressions;
       if (!masterNode) throw new Error(`Error: provide a masterNode`);
-      for (const expressionFn of [pkhBIP32, shWpkhBIP32, wpkhBIP32]) {
+      for (const expressionFn of [pkhBIP32, shWpkhBIP32, wpkhBIP32, trBIP32]) {
         let accountNumber = 0;
         const next = async () => {
           const descriptors = [0, 1].map(change =>

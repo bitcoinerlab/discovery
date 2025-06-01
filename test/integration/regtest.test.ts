@@ -44,7 +44,7 @@ const network = networks.regtest;
 const gapLimit = fixtures.regtest.gapLimit;
 const irrevConfThresh = fixtures.regtest.irrevConfThresh;
 
-const onAccountUsed = (_account: Account) => {
+const onAccountUsed = async (_account: Account) => {
   //console.log(`TRACE - onAccountUsed(${account}`);
 };
 

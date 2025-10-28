@@ -20,10 +20,11 @@
     "build:src": "tsc --project ./node_modules/@bitcoinerlab/configs/tsconfig.src.json",
     "build:test": "tsc --project ./node_modules/@bitcoinerlab/configs/tsconfig.test.json",
     "build": "npm run build:src && npm run build:test",
-    "lint": "eslint --ignore-path .gitignore --ext .ts src/ test/",
+    "lint": "if [ \"$ESLINT_USE_FLAT_CONFIG\" != false ]; then echo '\n⚠️  WARNING: ESLINT_USE_FLAT_CONFIG is not set to \"false\".\n   Editors may show different results than the CLI linter.\n   To fix permanently, add this to your ~/.bashrc or ~/.zshrc:\n\n   export ESLINT_USE_FLAT_CONFIG=false\n'; fi; ESLINT_USE_FLAT_CONFIG=false eslint --ignore-path .gitignore --ext .ts src/ test/",
     "updatelocalexplorer": "cd ../explorer && npm install && npm run build && npm pack && mv *.tgz ../discovery && cd ../discovery && npm uninstall @bitcoinerlab/explorer && npm install ./bitcoinerlab-explorer-*.tgz && rm ./bitcoinerlab-explorer-*.tgz",
-    "tester": "./node_modules/@bitcoinerlab/configs/scripts/tester.sh",
-    "test": "npm run lint && npm run build && npm run tester && NODE_OPTIONS=\"--experimental-fetch\" jest",
+    "tmpTester": "./node_modules/@bitcoinerlab/configs/scripts/tmpTester.sh",
+    "clearTmpTester": "./node_modules/@bitcoinerlab/configs/scripts/clearTmpTester.sh",
+    "test": "npm run lint && npm run build && npm run tmpTester && NODE_OPTIONS=\"--experimental-fetch\" jest && npm run clearTmpTester",
     "prepublishOnly": "npm test"
   },
   "repository": {
@@ -54,7 +55,7 @@
     "shallow-equal": "^3.1.0"
   },
   "devDependencies": {
-    "@bitcoinerlab/configs": "github:bitcoinerlab/configs",
+    "@bitcoinerlab/configs": "^1.3.0",
     "@types/lodash.clonedeep": "^4.5.9",
     "bip39": "^3.1.0",
     "regtest-client": "^0.2.0"

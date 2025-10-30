@@ -9,10 +9,7 @@ import { mnemonicToSeedSync } from 'bip39';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { encode: olderEncode } = require('bip68');
 import { compilePolicy } from '@bitcoinerlab/miniscript';
-import {
-  EsploraExplorer,
-  ESPLORA_LOCAL_REGTEST_URL
-} from '@bitcoinerlab/explorer';
+import { EsploraExplorer } from '@bitcoinerlab/explorer';
 const { Output, BIP32, ECPair } = descriptors.DescriptorsFactory(secp256k1);
 
 const regtestUtils = new RegtestUtils();
@@ -67,9 +64,10 @@ export const vaultsTests = () => {
       await new Promise(resolve => setTimeout(resolve, 5000));
     }, 11000);
 
+    const esploraPort = process.env['ESPLORA_PORT'] || '3002';
     test('discover descriptors', async () => {
       const { Discovery } = DiscoveryFactory(
-        new EsploraExplorer({ url: ESPLORA_LOCAL_REGTEST_URL }),
+        new EsploraExplorer({ url: `http://127.0.0.1:${esploraPort}` }),
         network
       );
       const unspents = await regtestUtils.unspents(vaultAddress);

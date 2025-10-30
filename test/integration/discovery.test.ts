@@ -26,6 +26,7 @@ const onAccountUsed = async (_account: Account) => {
 void ElectrumExplorer;
 void EsploraExplorer;
 for (const network of [networks.bitcoin]) {
+  //if (network.bech32 !== 'foo-bar') throw new Error('ENABLE THIS LATER');
   for (const explorerAndInfo of [
     {
       explorer: new EsploraExplorer({

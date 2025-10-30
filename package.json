@@ -2,7 +2,7 @@
   "name": "@bitcoinerlab/discovery",
   "description": "A TypeScript library for retrieving Bitcoin funds from ranged descriptors, leveraging @bitcoinerlab/explorer for standardized access to multiple blockchain explorers.",
   "homepage": "https://github.com/bitcoinerlab/discovery",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "author": "Jose-Luis Landabaso",
   "license": "MIT",
   "prettier": "@bitcoinerlab/configs/prettierConfig.json",
@@ -20,10 +20,12 @@
     "build:src": "tsc --project ./node_modules/@bitcoinerlab/configs/tsconfig.src.json",
     "build:test": "tsc --project ./node_modules/@bitcoinerlab/configs/tsconfig.test.json",
     "build": "npm run build:src && npm run build:test",
-    "lint": "eslint --ignore-path .gitignore --ext .ts src/ test/",
+    "lint": "if [ \"$ESLINT_USE_FLAT_CONFIG\" != false ]; then echo '\n⚠️  WARNING: ESLINT_USE_FLAT_CONFIG is not set to \"false\".\n   Editors may show different results than the CLI linter.\n   To fix permanently, add this to your ~/.bashrc or ~/.zshrc:\n\n   export ESLINT_USE_FLAT_CONFIG=false\n'; fi; ESLINT_USE_FLAT_CONFIG=false eslint --ignore-path .gitignore --ext .ts src/ test/",
     "updatelocalexplorer": "cd ../explorer && npm install && npm run build && npm pack && mv *.tgz ../discovery && cd ../discovery && npm uninstall @bitcoinerlab/explorer && npm install ./bitcoinerlab-explorer-*.tgz && rm ./bitcoinerlab-explorer-*.tgz",
-    "tester": "./node_modules/@bitcoinerlab/configs/scripts/tester.sh",
-    "test": "npm run lint && npm run build && npm run tester && NODE_OPTIONS=\"--experimental-fetch\" jest",
+    "COMMENT_ON_TESTER": "The testing setup below ensures that a fresh Docker container is started from scratch, providing a clean Bitcoin blockchain state. This is required by the Discovery tests, which rely on fixtures assuming that no previous transactions exist for certain addresses. Note that non-default ports are used so this container does not conflict with the regular 'bitcoinerlab_tester_instance', which may already be running. That instance is never reset and can be reused by other Bitcoinerlab modules.",
+    "ensureTmpTester": "REGTEST_SERVER_PORT=18080 ELECTRUM_PORT=16401 ESPLORA_PORT=13002 ESPLORA_BLOCK_EXPLORER_PORT=15000 CONTAINER_NAME=bitcoinerlab_tmp_tester_instance ./node_modules/@bitcoinerlab/configs/scripts/ensureTester.sh",
+    "cleanTmpTester": "CONTAINER_NAME=bitcoinerlab_tmp_tester_instance; VOLUME=$(docker inspect -f '{{range .Mounts}}{{.Name}}{{end}}' \"$CONTAINER_NAME\" 2>/dev/null); docker rm -fv \"$CONTAINER_NAME\" >/dev/null 2>&1 || true; if [ -n \"$VOLUME\" ]; then docker volume rm -f \"$VOLUME\" >/dev/null 2>&1 || true; fi",
+    "test": "npm run lint && npm run build && npm run cleanTmpTester && npm run ensureTmpTester && APIURL=\"http://127.0.0.1:18080/1\" ELECTRUM_PORT=16401 ESPLORA_PORT=13002 NODE_OPTIONS=\"--experimental-fetch\" jest; npm run cleanTmpTester",
     "prepublishOnly": "npm test"
   },
   "repository": {
@@ -54,7 +56,7 @@
     "shallow-equal": "^3.1.0"
   },
   "devDependencies": {
-    "@bitcoinerlab/configs": "github:bitcoinerlab/configs",
+    "@bitcoinerlab/configs": "^1.3.1",
     "@types/lodash.clonedeep": "^4.5.9",
     "bip39": "^3.1.0",
     "regtest-client": "^0.2.0"

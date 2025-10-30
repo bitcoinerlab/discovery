@@ -21,8 +21,7 @@ import { mnemonicToSeedSync } from 'bip39';
 import {
   EsploraExplorer,
   ElectrumExplorer,
-  Explorer,
-  ESPLORA_LOCAL_REGTEST_URL
+  Explorer
 } from '@bitcoinerlab/explorer';
 const { Output, BIP32 } = descriptors.DescriptorsFactory(secp256k1);
 const regtestUtils = new RegtestUtils();
@@ -129,6 +128,8 @@ describe('Discovery on regtest', () => {
       20000
     );
   }
+  const esploraPort = process.env['ESPLORA_PORT'] || '3002';
+  const electrumPort = process.env['ELECTRUM_PORT'] || '60401';
   const discoverers: Array<{
     name: string;
     explorer: Explorer;
@@ -138,7 +139,7 @@ describe('Discovery on regtest', () => {
     {
       name: 'Esplora',
       explorer: new EsploraExplorer({
-        url: ESPLORA_LOCAL_REGTEST_URL,
+        url: `http://127.0.0.1:${esploraPort}`,
         irrevConfThresh,
         maxTxPerScriptPubKey: 1000
       })
@@ -146,6 +147,9 @@ describe('Discovery on regtest', () => {
     {
       name: 'Electrum',
       explorer: new ElectrumExplorer({
+        host: '127.0.0.1',
+        port: parseInt(electrumPort, 10),
+        protocol: 'tcp',
         network,
         irrevConfThresh,
         maxTxPerScriptPubKey: 1000

@@ -2,7 +2,7 @@
   "name": "@bitcoinerlab/discovery",
   "description": "A TypeScript library for retrieving Bitcoin funds from ranged descriptors, leveraging @bitcoinerlab/explorer for standardized access to multiple blockchain explorers.",
   "homepage": "https://github.com/bitcoinerlab/discovery",
-  "version": "1.5.2",
+  "version": "1.5.3",
   "author": "Jose-Luis Landabaso",
   "license": "MIT",
   "prettier": "@bitcoinerlab/configs/prettierConfig.json",
@@ -20,7 +20,7 @@
     "build:src": "tsc --project ./node_modules/@bitcoinerlab/configs/tsconfig.src.json",
     "build:test": "tsc --project ./node_modules/@bitcoinerlab/configs/tsconfig.test.json",
     "build": "npm run build:src && npm run build:test",
-    "lint": "if [ \"$ESLINT_USE_FLAT_CONFIG\" != false ]; then echo '\n⚠️  WARNING: ESLINT_USE_FLAT_CONFIG is not set to \"false\".\n   Editors may show different results than the CLI linter.\n   To fix permanently, add this to your ~/.bashrc or ~/.zshrc:\n\n   export ESLINT_USE_FLAT_CONFIG=false\n'; fi; ESLINT_USE_FLAT_CONFIG=false eslint --ignore-path .gitignore --ext .ts src/ test/",
+    "lint": "./node_modules/@bitcoinerlab/configs/scripts/lint.sh",
     "updatelocalexplorer": "cd ../explorer && npm install && npm run build && npm pack && mv *.tgz ../discovery && cd ../discovery && npm uninstall @bitcoinerlab/explorer && npm install ./bitcoinerlab-explorer-*.tgz && rm ./bitcoinerlab-explorer-*.tgz",
     "COMMENT_ON_TESTER": "The testing setup below ensures that a fresh Docker container is started from scratch, providing a clean Bitcoin blockchain state. This is required by the Discovery tests, which rely on fixtures assuming that no previous transactions exist for certain addresses. Note that non-default ports are used so this container does not conflict with the regular 'bitcoinerlab_tester_instance', which may already be running. That instance is never reset and can be reused by other Bitcoinerlab modules.",
     "ensureTmpTester": "REGTEST_SERVER_PORT=18080 ELECTRUM_PORT=16401 ESPLORA_PORT=13002 ESPLORA_BLOCK_EXPLORER_PORT=15000 CONTAINER_NAME=bitcoinerlab_tmp_tester_instance ./node_modules/@bitcoinerlab/configs/scripts/ensureTester.sh",
@@ -45,20 +45,20 @@
     "dist"
   ],
   "dependencies": {
-    "@bitcoinerlab/descriptors": "^2.3.0",
-    "@bitcoinerlab/explorer": "^0.4.0",
+    "@bitcoinerlab/descriptors": "^2.3.4",
+    "@bitcoinerlab/explorer": "^0.4.2",
     "@bitcoinerlab/secp256k1": "^1.2.0",
     "@types/memoizee": "^0.4.8",
-    "bitcoinjs-lib": "^6.1.5",
+    "bitcoinjs-lib": "^6.1.7",
     "immer": "^9.0.21",
     "lodash.clonedeep": "^4.5.0",
     "memoizee": "^0.4.15",
     "shallow-equal": "^3.1.0"
   },
   "devDependencies": {
-    "@bitcoinerlab/configs": "^1.3.1",
+    "@bitcoinerlab/configs": "^2.0.0",
     "@types/lodash.clonedeep": "^4.5.9",
     "bip39": "^3.1.0",
-    "regtest-client": "^0.2.0"
+    "regtest-client": "^0.2.1"
   }
 }

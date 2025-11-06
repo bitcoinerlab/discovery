@@ -829,7 +829,6 @@ export function DiscoveryFactory(
      * This characteristic can be particularly beneficial in
      * React and similar projects, where re-rendering occurs based on reference changes.
      *
-     * @param options
      * @returns Returns an array of descriptor expressions.
      * These are derived from the discovery information.
      *
@@ -851,7 +850,6 @@ export function DiscoveryFactory(
      * This characteristic can be especially beneficial in
      * React or similar projects, where re-rendering occurs based on reference changes.
      *
-     * @param options
      * @returns An array of accounts, each represented
      * as its external descriptor expression.
      */

@@ -74,7 +74,7 @@ export function deriveDataFactory({
    * in the mempool) and either `tx` (`Transaction` type) or `txHex` (the
    * hexadecimal representation of the transaction)
    *
-   * @returns < 0 if txWithOrderA is older than txWithOrderB, > 01 if txWithOrderA is newer than txWithOrderB, and 0 if undecided.
+   * @returns < 0 if txWithOrderA is older than txWithOrderB, > 0 if txWithOrderA is newer than txWithOrderB, and 0 if undecided.
    */
   function compareTxOrder<TA extends TxWithOrder, TB extends TxWithOrder>(
     txWithOrderA: TA,
@@ -165,7 +165,7 @@ export function deriveDataFactory({
     //All prev outputs (spent or unspent) sent to this output descriptor:
     const allPrevOutputs: Utxo[] = [];
     //all outputs in txWithOrderArray which have been spent.
-    //May be outputs NOT snt to thil output descriptor:
+    //May be outputs NOT sent to this output descriptor:
     const spendingTxIdByOutput: Record<Utxo, TxId> = {}; //Means: Utxo was spent in txId
 
     //Note that txWithOrderArray cannot be assumed to be in correct order if
@@ -342,7 +342,7 @@ export function deriveDataFactory({
       descriptorOrDescriptors,
       txStatus
     );
-    //Suposedly Set.has is faster than Array.includes:
+    //Supposedly Set.has is faster than Array.includes:
     //https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Set#performance
     const txoSet = new Set([
       ...utxos,
@@ -478,7 +478,7 @@ export function deriveDataFactory({
               ),
             { primitive: true } //unbounded cache (no max setting) since Search Space is small
           ),
-        { primitive: true } //unbounced cache for networkId
+        { primitive: true } //unbounded cache for networkId
       ),
     { primitive: true } //unbounded cache (no max setting) since withAttributions is space is 2
   );
@@ -685,7 +685,7 @@ export function deriveDataFactory({
                 { max: 1 }
               );
             },
-            { primitive: true, max: descriptorsCacheSize } //potentially ininite search space. limit to 100 descriptorOrDescriptors per txStatus combination
+            { primitive: true, max: descriptorsCacheSize } //potentially infinite search space. limit to 100 descriptorOrDescriptors per txStatus combination
           ),
         { primitive: true } //unbounded cache (no max setting) since Search Space is small
       ),

@@ -206,7 +206,7 @@ export function DiscoveryFactory(
           }
           if (typeof index === 'number') {
             if (maxUsedIndex === 'non-ranged')
-              throw new Error('maxUsedIndex shoulnt be set as non-ranged');
+              throw new Error("maxUsedIndex shouldn't be set as non-ranged");
             if (index > maxUsedIndex && range[index]?.txIds.length)
               maxUsedIndex = index;
           }
@@ -717,7 +717,7 @@ export function DiscoveryFactory(
      * discovery.
      *
      * @param options
-     * @returns Resolves when all the standrd accounts from the master node have
+     * @returns Resolves when all the standard accounts from the master node have
      * been discovered.
      */
     async fetchStandardAccounts({
@@ -1422,7 +1422,7 @@ export function DiscoveryFactory(
      * function).
      *
      * The `gapLimit` parameter is essential for managing descriptor discovery.
-     * When addint a transaction, there is a possibility the transaction is
+     * When adding a transaction, there is a possibility the transaction is
      * adding new funds as change (for example). If the range for that index
      * does not exist yet, the `gapLimit` helps to update the descriptor
      * corresponding to a new UTXO for new indices within the gap limit.

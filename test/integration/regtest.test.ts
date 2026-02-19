@@ -17,6 +17,7 @@ import { RegtestUtils } from 'regtest-client';
 import { Psbt, networks, Transaction } from 'bitcoinjs-lib';
 import * as secp256k1 from '@bitcoinerlab/secp256k1';
 import * as descriptors from '@bitcoinerlab/descriptors';
+import { toHex } from 'uint8array-tools';
 import { mnemonicToSeedSync } from 'bip39';
 import {
   EsploraExplorer,
@@ -47,10 +48,10 @@ const onAccountUsed = async (_account: Account) => {
   //console.log(`TRACE - onAccountUsed(${account}`);
 };
 
-const parseScriptPubKeys = (range: Record<DescriptorIndex, number>) => {
+const parseScriptPubKeys = (range: Record<DescriptorIndex, bigint>) => {
   let rangeArray: Array<{
     index: DescriptorIndex;
-    balance: number;
+    balance: bigint;
     outOfGapLimit?: boolean;
   }> = Object.entries(range).map(([indexStr, balance]) => {
     const index = indexStr === 'non-ranged' ? indexStr : Number(indexStr);
@@ -64,7 +65,7 @@ const parseScriptPubKeys = (range: Record<DescriptorIndex, number>) => {
   });
 
   let previousIndex = 0;
-  let totalBalance = 0;
+  let totalBalance = 0n;
   rangeArray = rangeArray.map(entry => {
     let outOfGapLimit = false;
     if (
@@ -118,9 +119,9 @@ describe('Discovery on regtest', () => {
             let unspent = unspents[0];
             if (funding) {
               expect(unspent).toEqual(undefined);
-              unspent = await regtestUtils.faucet(address, value);
+              unspent = await regtestUtils.faucet(address, Number(value));
             }
-            const balance = (unspent && unspent.value) || 0;
+            const balance = BigInt((unspent && unspent.value) || 0);
             expect(balance).toEqual(value);
           }
         }
@@ -218,9 +219,9 @@ describe('Discovery on regtest', () => {
 
           // Convert entries into array of objects
           const { totalBalance, totalUtxosCount, rangeArray } =
-            parseScriptPubKeys(range as Record<DescriptorIndex, number>);
+            parseScriptPubKeys(range as Record<DescriptorIndex, bigint>);
           for (const { index, balance, outOfGapLimit } of rangeArray) {
-            let balanceDefault: number;
+            let balanceDefault: bigint;
             let utxosDefault: Array<Utxo>;
             let stxosDefault: Array<Stxo>;
             test(`getUtxosAndBalance default status for ${descriptor}:${index} using ${discoverer.name} after ${totalMined} blocks`, () => {
@@ -296,7 +297,7 @@ describe('Discovery on regtest', () => {
                     txStatus: TxStatus.CONFIRMED
                   });
                 expect(utxosConfirmed.length).toEqual(totalMined > 0 ? 1 : 0);
-                expect(balanceConfirmed).toEqual(totalMined > 0 ? balance : 0);
+                expect(balanceConfirmed).toEqual(totalMined > 0 ? balance : 0n);
                 expect(utxosConfirmed).not.toBe(utxosDefault); //These references should be different
               }
             });
@@ -326,13 +327,13 @@ describe('Discovery on regtest', () => {
                   totalMined >= irrevConfThresh ? 1 : 0
                 );
                 expect(balanceIrreversible).toEqual(
-                  totalMined >= irrevConfThresh ? balance : 0
+                  totalMined >= irrevConfThresh ? balance : 0n
                 );
                 expect(utxosIrreversible).not.toBe(utxosDefault); //These references should be different
               }
             });
           }
-          let balanceDefault: number;
+          let balanceDefault: bigint;
           let utxosDefault: Array<Utxo>;
           let stxosDefault: Array<Stxo>;
           let txoMapDefault: TxoMap;
@@ -392,7 +393,9 @@ describe('Discovery on regtest', () => {
               descriptor,
               txStatus: TxStatus.CONFIRMED
             });
-            expect(balanceConfirmed).toEqual(totalMined > 0 ? totalBalance : 0);
+            expect(balanceConfirmed).toEqual(
+              totalMined > 0 ? totalBalance : 0n
+            );
             expect(utxosConfirmed.length).toEqual(
               totalMined > 0 ? totalUtxosCount : 0
             );
@@ -421,7 +424,7 @@ describe('Discovery on regtest', () => {
               txStatus: TxStatus.IRREVERSIBLE
             });
             expect(balanceIrreversible).toEqual(
-              totalMined >= irrevConfThresh ? totalBalance : 0
+              totalMined >= irrevConfThresh ? totalBalance : 0n
             );
             expect(utxosIrreversible.length).toEqual(
               totalMined >= irrevConfThresh ? totalUtxosCount : 0
@@ -561,7 +564,7 @@ describe('Discovery on regtest', () => {
         index: nextNextIndex,
         network
       });
-      const finalBalance = Math.floor(0.9 * balance);
+      const finalBalance = (balance * 9n) / 10n; //pass 90% of original balance
       finalOutput.updatePsbtAsOutput({
         psbt,
         value: finalBalance
@@ -576,7 +579,7 @@ describe('Discovery on regtest', () => {
       const spendingTxId = spendingTx.getId();
       let spendingVin = -1;
       for (const [i, input] of spendingTx.ins.entries()) {
-        const prevTxId = Buffer.from(input.hash).reverse().toString('hex');
+        const prevTxId = toHex(Uint8Array.from(input.hash).reverse());
         if (
           prevTxId === faucetResult.txId &&
           input.index === faucetResult.vout

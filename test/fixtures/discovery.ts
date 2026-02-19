@@ -12,10 +12,10 @@ export const fixtures = {
         descriptor:
           "pkh([a0809f04/44'/1'/0']tpubDDZgrqYqZ8KhKDKYp1Skpg4S11C3PptLU5LgTg57HY6B3qEYb571N2AQUbRoAZduqtKnBDJDerXS588TKTcB3AP7rpoeUHu49mqZz4Ctnjp/100/*)",
         range: {
-          1: 100000000,
-          4: 5000000,
-          14: 6000,
-          25: 1500000000
+          1: 100000000n,
+          4: 5000000n,
+          14: 6000n,
+          25: 1500000000n
         }
       },
       {
@@ -26,16 +26,16 @@ export const fixtures = {
       {
         descriptor:
           "pkh([a0809f04/44'/1'/2']tpubDDZgrqYqZ8KhRWoLmi9dXgxi14b3wuD9afKWgf4t2dGSUaEWmNsZ9Xwa6MxtLA2WakTSVpNL4MGrHBFs9TRr99p9GLN5arF8PWnZNn7P2Gp/100/0)",
-        range: { 'non-ranged': 123123 }
+        range: { 'non-ranged': 123123n }
       },
       {
         descriptor:
           "pkh([a0809f04/44'/1'/10']tpubDDZgrqYqZ8Khmoc8cgxe51g1GchJ9F3MZHebGJEKkX5JtuRHUQysf4sSWiobEeEWNKjg7xVkZSZw549PU8LCwNRXRYhUZGfZ7xxNEE9uoPA/100/*)#52y3898q",
         range: {
-          1: 100000000,
-          4: 5000000,
-          14: 6000,
-          25: 1500000000
+          1: 100000000n,
+          4: 5000000n,
+          14: 6000n,
+          25: 1500000000n
         }
       },
       {
@@ -46,7 +46,7 @@ export const fixtures = {
       {
         descriptor:
           "pkh([a0809f04/44'/1'/12']tpubDDZgrqYqZ8KhsUuuUYn7Yu48sRy79zAZwps2Tv64RA3HJCmBkCUdeuj3UWz5vMEWBPUGMLF6jpkL9BWoWcbg2xJc5dcfpz8ooLFfboiZfa4/100/0)#4h3cswf0",
-        range: { 'non-ranged': 123123 }
+        range: { 'non-ranged': 123123n }
       },
       {
         descriptor:

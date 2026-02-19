@@ -6,9 +6,10 @@ import { networks } from 'bitcoinjs-lib';
 import * as secp256k1 from '@bitcoinerlab/secp256k1';
 import * as descriptors from '@bitcoinerlab/descriptors';
 import { mnemonicToSeedSync } from 'bip39';
+import { toHex } from 'uint8array-tools';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { encode: olderEncode } = require('bip68');
-import { compilePolicy } from '@bitcoinerlab/miniscript';
+import { compilePolicy, ready } from '@bitcoinerlab/miniscript-policies';
 import { EsploraExplorer } from '@bitcoinerlab/explorer';
 const { Output, BIP32, ECPair } = descriptors.DescriptorsFactory(secp256k1);
 
@@ -23,11 +24,12 @@ export const vaultsTests = () => {
     const SEED =
       'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
 
-    const BALANCE = 10000;
+    const BALANCE = 10000n;
     let standardDescriptors: Array<string>;
     let vaultDescriptor: string;
     let vaultAddress: string;
     beforeAll(async () => {
+      await ready;
       await new Promise(resolve => setTimeout(resolve, 5000));
       const POLICY = (older: number) =>
         `or(pk(@panicKey),99@and(pk(@unvaultKey),older(${older})))`;
@@ -56,11 +58,17 @@ export const vaultsTests = () => {
 
       vaultDescriptor = `wsh(${miniscript
         .replace('@unvaultKey', unvaultKey)
-        .replace('@panicKey', panicPubKey.toString('hex'))})`;
+        .replace('@panicKey', toHex(panicPubKey))})`;
 
       const vaultOutput = new Output({ descriptor: vaultDescriptor, network });
       vaultAddress = vaultOutput.getAddress();
-      await regtestUtils.faucet(vaultAddress, BALANCE);
+      const faucetValue = Number(BALANCE);
+      if (!Number.isSafeInteger(faucetValue)) {
+        throw new Error(
+          `Fixture value exceeds Number.MAX_SAFE_INTEGER: ${BALANCE.toString()}`
+        );
+      }
+      await regtestUtils.faucet(vaultAddress, faucetValue);
       await new Promise(resolve => setTimeout(resolve, 5000));
     }, 11000);
 

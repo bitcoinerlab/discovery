@@ -202,13 +202,13 @@ export type TxAttribution = {
   ins: Array<{
     //none are set if the prev output cannot be described by one of the owned descriptors
     ownedPrevTxo: Utxo | false; //the prev output where funds come from in this input
-    value?: number; //amount received
+    value?: bigint; //amount received
   }>;
   outs: Array<{
     ownedTxo: Utxo | false; //the owned output where funds are sent in this tx output. Not set if the output is not owned by the descriptors
-    value: number; //amount sent. Always set
+    value: bigint; //amount sent. Always set
   }>;
-  netReceived: number;
+  netReceived: bigint;
   type: 'CONSOLIDATED' | 'RECEIVED' | 'SENT' | 'RECEIVED_AND_SENT';
 };
 

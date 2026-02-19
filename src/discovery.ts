@@ -13,6 +13,7 @@ import { getNetworkId } from './networks';
 import { scriptExpressions } from '@bitcoinerlab/descriptors';
 
 import { Network, crypto, Transaction } from 'bitcoinjs-lib';
+import { compare, toHex } from 'uint8array-tools';
 import type { BIP32Interface } from 'bip32';
 import type { Explorer } from '@bitcoinerlab/explorer';
 import cloneDeep from 'lodash.clonedeep';
@@ -178,7 +179,7 @@ export function DiscoveryFactory(
       /**
        * The scriptPubKey to check for uniqueness.
        */
-      scriptPubKey: Buffer;
+      scriptPubKey: Uint8Array;
       /**
        * When the descriptor is ranged, it will keep searching for the scriptPubKey
        * to non-set indices above the last one set until reaching the gapLimit.
@@ -198,9 +199,10 @@ export function DiscoveryFactory(
         for (const indexStr of Object.keys(range)) {
           const index = indexStr === 'non-ranged' ? indexStr : Number(indexStr);
           if (
-            scriptPubKey.equals(
+            compare(
+              scriptPubKey,
               this.#derivers.deriveScriptPubKey(networkId, descriptor, index) //This will be very fast (uses memoization)
-            )
+            ) === 0
           ) {
             return { descriptor, index };
           }
@@ -219,9 +221,10 @@ export function DiscoveryFactory(
             index++
           ) {
             if (
-              scriptPubKey.equals(
+              compare(
+                scriptPubKey,
                 this.#derivers.deriveScriptPubKey(networkId, descriptor, index) //This will be very fast (uses memoization)
-              )
+              ) === 0
             ) {
               return { descriptor, index };
             }
@@ -252,7 +255,7 @@ export function DiscoveryFactory(
       /**
        * The scriptPubKey to check for uniqueness.
        */
-      scriptPubKey: Buffer;
+      scriptPubKey: Uint8Array;
     }) {
       const descriptorWithIndex = this.#getDescriptorByScriptPubKey({
         networkId,
@@ -311,9 +314,9 @@ export function DiscoveryFactory(
         internalIndex
       );
       //https://electrumx.readthedocs.io/en/latest/protocol-basics.html#script-hashes
-      const scriptHash = Buffer.from(crypto.sha256(scriptPubKey))
-        .reverse()
-        .toString('hex');
+      const scriptHash = toHex(
+        Uint8Array.from(crypto.sha256(scriptPubKey)).reverse()
+      );
       this.#discoveryData = produce(this.#discoveryData, discoveryData => {
         const range = discoveryData[networkId].descriptorMap[descriptor]?.range;
         if (!range) throw new Error(`unset range ${networkId}:${descriptor}`);
@@ -917,7 +920,7 @@ export function DiscoveryFactory(
       utxos: Array<Utxo>;
       stxos: Array<Stxo>;
       txoMap: TxoMap;
-      balance: number;
+      balance: bigint;
     } {
       this.#ensureFetched({
         ...(descriptor ? { descriptor } : {}),
@@ -967,7 +970,7 @@ export function DiscoveryFactory(
      * Convenience function which internally invokes the
      * `getUtxosAndBalance(options).balance` method.
      */
-    getBalance(outputCriteria: OutputCriteria): number {
+    getBalance(outputCriteria: OutputCriteria): bigint {
       return this.getUtxosAndBalance(outputCriteria).balance;
     }
 
@@ -1486,7 +1489,7 @@ export function DiscoveryFactory(
       for (let vin = 0; vin < tx.ins.length; vin++) {
         const input = tx.ins[vin];
         if (!input) throw new Error(`Error: invalid input for ${txId}:${vin}`);
-        const prevTxId = Buffer.from(input.hash).reverse().toString('hex');
+        const prevTxId = toHex(Uint8Array.from(input.hash).reverse());
         const prevVout = input.index;
         const prevUtxo: Utxo = `${prevTxId}:${prevVout}`;
 
@@ -1533,8 +1536,8 @@ export function DiscoveryFactory(
           const input = tx.ins[vin];
           if (!input)
             throw new Error(`Error: invalid input for ${txId}:${vin}`);
-          //Note we create a new Buffer since reverse() mutates the Buffer
-          const prevTxId = Buffer.from(input.hash).reverse().toString('hex');
+          //Note we create a new Uint8Array since reverse() mutates the input
+          const prevTxId = toHex(Uint8Array.from(input.hash).reverse());
           const prevVout = input!.index;
           const prevUtxo: Utxo = `${prevTxId}:${prevVout}`;
           const extendedDescriptor = this.getDescriptor({ utxo: prevUtxo });

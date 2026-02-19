@@ -24,6 +24,7 @@ import {
 import { Transaction, Network } from 'bitcoinjs-lib';
 import { DescriptorsFactory } from '@bitcoinerlab/descriptors';
 import * as secp256k1 from '@bitcoinerlab/secp256k1';
+import { compare, fromHex, toHex } from 'uint8array-tools';
 const { Output, expand } = DescriptorsFactory(secp256k1);
 import { getNetwork } from './networks';
 
@@ -110,12 +111,14 @@ export function deriveDataFactory({
     //getHash is slow, try to avoid it if we can use a cached getId:
     const txHashB = txIdB ? hex2RevBuf(txIdB) : txB.getHash();
     // txA is newer because it uses an input from txB
-    for (const Ainput of txA.ins) if (Ainput.hash.equals(txHashB)) return 1;
+    for (const Ainput of txA.ins)
+      if (compare(Ainput.hash, txHashB) === 0) return 1;
 
     //getHash is slow, try to avoid it if we can use a cached getId:
     const txHashA = txIdA ? hex2RevBuf(txIdA) : txA.getHash();
     // txB is newer because it uses an input from txA
-    for (const Binput of txB.ins) if (Binput.hash.equals(txHashA)) return -1;
+    for (const Binput of txB.ins)
+      if (compare(Binput.hash, txHashA) === 0) return -1;
 
     return 0; // Cannot decide, keep the original order
   }
@@ -192,7 +195,7 @@ export function deriveDataFactory({
         }
 
         for (const [vout, output] of tx.outs.entries()) {
-          if (output.script.equals(scriptPubKey)) {
+          if (compare(output.script, scriptPubKey) === 0) {
             const txo = `${txId}:${vout}`;
             allPrevOutputs.push(txo);
             txoMap[txo] = `${descriptor}~${index}`;
@@ -230,7 +233,7 @@ export function deriveDataFactory({
                   let lastUtxos: Array<Utxo> | null = null;
                   let lastStxos: Array<Stxo> | null = null;
                   let lastTxoMap: TxoMap | null = null;
-                  let lastBalance: number;
+                  let lastBalance: bigint;
                   return memoizee(
                     (
                       txMap: Record<TxId, TxData>,
@@ -249,7 +252,7 @@ export function deriveDataFactory({
                         txWithOrderArray,
                         txStatus
                       );
-                      let balance: number;
+                      let balance: bigint;
                       if (lastTxoMap && shallowEqualObjects(lastTxoMap, txoMap))
                         txoMap = lastTxoMap;
                       if (lastStxos && shallowEqualArrays(lastStxos, stxos))
@@ -382,10 +385,10 @@ export function deriveDataFactory({
         const ownedTxo: Utxo | false = txoSet.has(txo) ? txo : false;
         return { ownedTxo, value };
       });
-      let netReceived = 0;
+      let netReceived = 0n;
       //What I receive in my descriptors:
       for (const output of outs)
-        netReceived += output.ownedTxo ? output.value : 0;
+        netReceived += output.ownedTxo ? output.value : 0n;
       //What i send from my descriptors:
       for (const input of ins) {
         if (input.ownedPrevTxo) {
@@ -653,7 +656,7 @@ export function deriveDataFactory({
               let lastTxoMap: TxoMap | null = null;
               let lastUtxos: Array<Utxo> | null = null;
               let lastStxos: Array<Stxo> | null = null;
-              let lastBalance: number;
+              let lastBalance: bigint;
               return memoizee(
                 (
                   txMap: Record<TxId, TxData>,
@@ -666,7 +669,7 @@ export function deriveDataFactory({
                     descriptorOrDescriptors,
                     txStatus
                   );
-                  let balance: number;
+                  let balance: bigint;
                   if (lastTxoMap && shallowEqualObjects(lastTxoMap, txoMap))
                     txoMap = lastTxoMap;
                   if (lastStxos && shallowEqualArrays(lastStxos, stxos))
@@ -717,7 +720,7 @@ export function deriveDataFactory({
   );
   const hex2RevBuf = memoizee(
     (idOrHash: string) => {
-      return Buffer.from(idOrHash).reverse();
+      return fromHex(idOrHash).reverse();
     },
     {
       primitive: true,
@@ -725,9 +728,9 @@ export function deriveDataFactory({
     }
   );
   const buf2RevHex = memoizee(
-    (idOrHash: Buffer) => {
-      //Note we create a new Buffer since reverse() mutates the Buffer
-      return Buffer.from(idOrHash).reverse().toString('hex');
+    (idOrHash: Uint8Array) => {
+      //Note we create a new Uint8Array since reverse() mutates the input
+      return toHex(Uint8Array.from(idOrHash).reverse());
     },
     {
       primitive: true,
@@ -738,8 +741,8 @@ export function deriveDataFactory({
   const coreDeriveUtxosBalance = (
     txMap: Record<TxId, TxData>,
     utxos: Array<Utxo>
-  ): number => {
-    let balance = 0;
+  ): bigint => {
+    let balance = 0n;
 
     const firstDuplicate = utxos.find((element, index, arr) => {
       return arr.indexOf(element) !== index;

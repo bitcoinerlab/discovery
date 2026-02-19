@@ -14,6 +14,11 @@ The @bitcoinerlab/discovery library, written in TypeScript, provides a method fo
 
 - **Data Derivation:** The library maintains a compact internal structure of information and provides methods to query and derive useful data from it. For example, Balances and UTXOs are computed on-the-fly from raw data, while advanced memoization techniques ensure efficiency. This compact data model allows the library to focus on retrieving and storing only transaction data, eliminating the need to download and keep balances or UTXOs in sync.
 
+## Version Compatibility
+
+- `@bitcoinerlab/discovery@2.x` is aligned with `bitcoinjs-lib@7`, `@bitcoinerlab/descriptors@3`, and `@bitcoinerlab/explorer@1`.
+- This version is a breaking change: monetary amounts are now exposed as `bigint` (for example, `balance`, attribution values, and `netReceived`).
+
 ## Usage
 
 To get started, follow the steps below:
@@ -125,12 +130,13 @@ To get started, follow the steps below:
      const { utxos } = discovery.getUtxos({ descriptor });
      ```
 
-   - **Calculating Balance**:
-     Use [`getBalance`](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html#getBalance) to calculate the total balance from the fetched data:
+    - **Calculating Balance**:
+      Use [`getBalance`](https://bitcoinerlab.com/modules/discovery/api/classes/_Internal_.Discovery.html#getBalance) to calculate the total balance from the fetched data:
 
-     ```typescript
-     const { balance } = discovery.getBalance({ descriptor });
-     ```
+      ```typescript
+      const balance = discovery.getBalance({ descriptor });
+      // balance is bigint (satoshis)
+      ```
 
    Other methods to derive or calculate data include:
 

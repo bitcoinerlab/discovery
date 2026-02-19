@@ -28,18 +28,21 @@ void EsploraExplorer;
 for (const network of [networks.bitcoin]) {
   //if (network.bech32 !== 'foo-bar') throw new Error('ENABLE THIS LATER');
   for (const explorerAndInfo of [
-    {
-      explorer: new EsploraExplorer({
-        url: 'https://blockstream.info/api/',
-        requestQueueParams: {
-          maxConcurrentTasks: 10
-          //maxConcurrentTasks: 30
-          //maxConcurrentTasks: 5 //default is 10
-          //maxAttemptsForHardErrors: 10 //default is 5
-        }
-      }),
-      info: 'EsploraExplorer'
-    },
+    // Public Esplora servers (blockstream.info or mempool.space are
+    // rate-limited; it's impossible to run this test below anymore:
+    //{
+    //  explorer: new EsploraExplorer({
+    //    //url: 'https://blockstream.info/api/',
+    //    url: 'https://mempool.space/api/',
+    //    requestQueueParams: {
+    //      maxConcurrentTasks: 10
+    //      //maxConcurrentTasks: 30
+    //      //maxConcurrentTasks: 5 //default is 10
+    //      //maxAttemptsForHardErrors: 10 //default is 5
+    //    }
+    //  }),
+    //  info: 'EsploraExplorer'
+    //},
     {
       explorer: new ElectrumExplorer({
         //host: 'btc.lastingcoin.net', //time out on bitcoind
@@ -73,7 +76,7 @@ for (const network of [networks.bitcoin]) {
     //Some servers: https://1209k.com/bitcoin-eye/ele.php
     //new EsploraExplorer({
     //  url:
-    //    network === networks.testnet
+    //    network.bech32 === networks.testnet.bech32
     //      ? 'https://blockstream.info/testnet/api'
     //      : 'https://blockstream.info/api', irrevConfThresh: 3, maxTxPerScriptPubKey: 1000
     //})
@@ -139,7 +142,7 @@ for (const network of [networks.bitcoin]) {
               descriptors,
               txStatus: TxStatus.ALL
             });
-            expect(balance).toEqual(0);
+            expect(balance).toEqual(0n);
             //console.log(`Balance for ${descriptors}: ${balance}`);
             const txHistory = discovery.getHistory({ descriptors });
             expect(txHistory.length).toBeGreaterThan(0);

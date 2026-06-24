@@ -609,6 +609,37 @@ export function DiscoveryFactory(
     }
 
     /**
+     * Retrieves the fetching status and timestamp for a canonical descriptor.
+     *
+     * This avoids canonicalizing descriptors again in internal call paths that
+     * already canonicalized them.
+     *
+     * @private
+     */
+    #whenFetchedCanonical({
+      canonicalDescriptor,
+      index
+    }: {
+      canonicalDescriptor: Descriptor;
+      index?: number;
+    }): { fetching: boolean; timeFetched: number } | undefined {
+      const networkId = getNetworkId(network);
+      const descriptorData =
+        this.#discoveryData[networkId].descriptorMap[canonicalDescriptor];
+      if (!descriptorData) return undefined;
+      if (typeof index !== 'number') {
+        return {
+          fetching: descriptorData.fetching,
+          timeFetched: descriptorData.timeFetched
+        };
+      }
+      const outputData = descriptorData.range[index];
+      return outputData
+        ? { fetching: outputData.fetching, timeFetched: outputData.timeFetched }
+        : undefined;
+    }
+
+    /**
      * Retrieves the fetching status and the timestamp of the last fetch for a descriptor.
      *
      * Use this function to check if the data for a specific descriptor, or an index within
@@ -638,27 +669,10 @@ export function DiscoveryFactory(
     }): { fetching: boolean; timeFetched: number } | undefined {
       if (typeof index !== 'undefined' && descriptor.indexOf('*') === -1)
         throw new Error(`Pass index (optionally) only for ranged descriptors`);
-      const networkId = getNetworkId(network);
-      const descriptorData =
-        this.#discoveryData[networkId].descriptorMap[
-          canonicalize(descriptor, network) as Descriptor
-        ];
-      if (!descriptorData) return undefined;
-      if (typeof index !== 'number') {
-        return {
-          fetching: descriptorData.fetching,
-          timeFetched: descriptorData.timeFetched
-        };
-      } else {
-        const internalIndex = typeof index === 'number' ? index : 'non-ranged';
-        const outputData = descriptorData.range[internalIndex];
-        if (!outputData) return undefined;
-        else
-          return {
-            fetching: outputData.fetching,
-            timeFetched: outputData.timeFetched
-          };
-      }
+      return this.#whenFetchedCanonical({
+        canonicalDescriptor: canonicalize(descriptor, network) as Descriptor,
+        ...(index !== undefined ? { index } : {})
+      });
     }
 
     /**
@@ -687,7 +701,7 @@ export function DiscoveryFactory(
        * but not both simultaneously.
        */
       descriptors?: Array<Descriptor>;
-    }) {
+    }): Descriptor | Array<Descriptor> {
       if ((descriptor && descriptors) || !(descriptor || descriptors))
         throw new Error(`Pass descriptor or descriptors`);
       if (
@@ -695,23 +709,35 @@ export function DiscoveryFactory(
         (descriptors || !descriptor?.includes('*'))
       )
         throw new Error(`Don't pass index`);
-      if (descriptors)
-        descriptors.forEach(descriptor => {
-          if (!this.whenFetched({ descriptor }))
+
+      if (descriptors) {
+        const canonicalDescriptors = canonicalize(
+          descriptors,
+          network
+        ) as Array<Descriptor>;
+        canonicalDescriptors.forEach((canonicalDescriptor, descriptorIndex) => {
+          if (!this.#whenFetchedCanonical({ canonicalDescriptor }))
             throw new Error(
-              `Cannot derive data from ${descriptor} since it has not been previously fetched`
+              `Cannot derive data from ${descriptors[descriptorIndex]} since it has not been previously fetched`
             );
         });
-      else if (
-        descriptor &&
-        !this.whenFetched({
-          descriptor,
+        return canonicalDescriptors;
+      }
+
+      const canonicalDescriptor = canonicalize(
+        descriptor!,
+        network
+      ) as Descriptor;
+      if (
+        !this.#whenFetchedCanonical({
+          canonicalDescriptor,
           ...(index !== undefined ? { index } : {})
         })
       )
         throw new Error(
           `Cannot derive data from ${descriptor}/${index} since it has not been previously fetched`
         );
+      return canonicalDescriptor;
     }
 
     /**
@@ -922,11 +948,6 @@ export function DiscoveryFactory(
       txoMap: TxoMap;
       balance: bigint;
     } {
-      this.#ensureFetched({
-        ...(descriptor ? { descriptor } : {}),
-        ...(descriptors ? { descriptors } : {}),
-        ...(index !== undefined ? { index } : {})
-      });
       if ((descriptor && descriptors) || !(descriptor || descriptors))
         throw new Error(`Pass descriptor or descriptors`);
       if (
@@ -934,10 +955,11 @@ export function DiscoveryFactory(
         (descriptors || !descriptor?.includes('*'))
       )
         throw new Error(`Don't pass index`);
-      const descriptorOrDescriptors = canonicalize(
-        (descriptor || descriptors)!,
-        network
-      );
+      const descriptorOrDescriptors = this.#ensureFetched({
+        ...(descriptor ? { descriptor } : {}),
+        ...(descriptors ? { descriptors } : {}),
+        ...(index !== undefined ? { index } : {})
+      });
       const networkId = getNetworkId(network);
       const descriptorMap = this.#discoveryData[networkId].descriptorMap;
       const txMap = this.#discoveryData[networkId].txMap;
@@ -1010,7 +1032,9 @@ export function DiscoveryFactory(
     }) {
       if (!descriptor || descriptor.indexOf('*') === -1)
         throw new Error(`Error: invalid ranged descriptor: ${descriptor}`);
-      this.#ensureFetched({ descriptor });
+      const canonicalDescriptor = this.#ensureFetched({
+        descriptor
+      }) as Descriptor;
 
       const networkId = getNetworkId(network);
       const descriptorMap = this.#discoveryData[networkId].descriptorMap;
@@ -1022,7 +1046,7 @@ export function DiscoveryFactory(
           networkId,
           txMap,
           descriptorMap,
-          canonicalize(descriptor, network) as Descriptor,
+          canonicalDescriptor,
           index,
           txStatus
         ).length
@@ -1089,11 +1113,7 @@ export function DiscoveryFactory(
         (descriptors || !descriptor?.includes('*'))
       )
         throw new Error(`Don't pass index`);
-      const descriptorOrDescriptors = canonicalize(
-        (descriptor || descriptors)!,
-        network
-      );
-      this.#ensureFetched({
+      const descriptorOrDescriptors = this.#ensureFetched({
         ...(descriptor ? { descriptor } : {}),
         ...(descriptors ? { descriptors } : {}),
         ...(index !== undefined ? { index } : {})

@@ -92,9 +92,9 @@ export enum TxStatus {
  * An `IndexedDescriptor` is a descriptor representation what must correspond to
  * a single output.
  *
- * - If it is ranged, then add an integer after the separaror (a
+ * - If it is ranged, then add an integer after the separator (a
  * tilde "\~").
- * - It it is non-ranged, add the string "non-ranged" after the tilde "\~".
+ * - If it is non-ranged, add the string "non-ranged" after the tilde "\~".
  *
  * Examples:
  * pkh([73c5da0a/44'/1'/0']tpubDC5FSnBiZDMmhiuCmWAYsLwgLYrrT9rAqvTySfuCCrgsWz8wxMXUS9Tb9iVMvcRbvFcAHGkMD5Kx8koh4GquNGNTfohfk7pgjhaPCdXpoba/0/*)\~12
@@ -103,7 +103,7 @@ export enum TxStatus {
 export type IndexedDescriptor = string;
 /**
  * a Txo is represented in a similar manner as a Utxo, that is,
- * prevtxId:vout. Hovewer, we use a different type name to denote we're dealing
+ * prevtxId:vout. However, we use a different type name to denote we're dealing
  * here with tx outputs that may have been spent or not
  */
 export type Txo = string;

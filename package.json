@@ -53,8 +53,8 @@
     "dist"
   ],
   "dependencies": {
-    "@bitcoinerlab/descriptors": "^3.2.0",
-    "@bitcoinerlab/explorer": "^1.0.0",
+    "@bitcoinerlab/descriptors": "^3.2.1",
+    "@bitcoinerlab/explorer": "^1.0.1",
     "@bitcoinerlab/secp256k1": "^2.0.0",
     "@types/memoizee": "^0.4.12",
     "bitcoinjs-lib": "^7.0.5",
@@ -66,7 +66,7 @@
   },
   "devDependencies": {
     "@bitcoinerlab/configs": "^2.0.0",
-    "@bitcoinerlab/miniscript-policies": "^1.1.0",
+    "@bitcoinerlab/miniscript-policies": "^1.1.1",
     "@types/lodash.clonedeep": "^4.5.9",
     "bip39": "^3.1.2",
     "regtest-client": "^0.2.1"

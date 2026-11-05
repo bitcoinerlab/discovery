@@ -235,19 +235,30 @@ This will build the project and generate the necessary files in the `dist` direc
 
 ### Testing
 
-Before finalizing and committing your code, it's essential to make sure all tests are successful. To run these tests:
-
-1. A Bitcoin regtest node must be active.
-2. Utilize the [Express-based bitcoind manager](https://github.com/bitcoinjs/regtest-server) which should be operational at `127.0.0.1:8080`.
-3. An Electrum server and an Esplora server are required, both indexing the regtest node.
-
-To streamline this setup, you can use the Docker image, `bitcoinerlab/tester`, which comes preconfigured with the required services. The Docker image can be found under **Dockerfile for bitcoinerlab/tester**. When you run the test script using:
+With Docker installed and running:
 
 ```bash
 npm test
 ```
 
-it will automatically download and start the Docker image if it's not already present on your machine. However, ensure you have the `docker` binary available in your path for this to work seamlessly.
+This runs lint, the build, unit tests and local integration tests using Bitcoin
+Core, Electrum and Esplora from the `bitcoinerlab/tape` Docker image. Fixtures
+require a clean chain, so each run uses the temporary container
+`bitcoinerlab_tmp_tester_instance` on ports 18080 (regtest API), 16401 (Electrum),
+13002 (Esplora) and 15000 (block explorer). The temporary container and its volume
+are removed after the run; persistent testers are not modified. Do not run
+multiple Discovery suites concurrently with the same ports and container name.
+
+To rerun the compiled local tests, use `npm run test:local`.
+
+Optional checks against public Bitcoin services:
+
+```bash
+npm run test:public
+```
+
+These require internet access and may fail when a public service is unavailable.
+They are not included in `npm test` or `prepublishOnly`.
 
 ### License
 

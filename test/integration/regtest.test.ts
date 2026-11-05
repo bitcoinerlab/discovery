@@ -13,7 +13,8 @@
 //TODO: tests with used both for unrangedDescriptor and ranged and using pubkey instad of bip32, this should be detected
 //TODO: test the rest of methods
 import { vaultsTests } from './vaults';
-import { RegtestUtils } from 'regtest-client';
+import { regtestUtils, esploraURL, electrumPort } from '../helpers/regtest';
+import { waitFor } from '../helpers/waitFor';
 import { Psbt, networks, Transaction } from 'bitcoinjs-lib';
 import * as secp256k1 from '@bitcoinerlab/secp256k1';
 import * as descriptors from '@bitcoinerlab/descriptors';
@@ -25,7 +26,6 @@ import {
   Explorer
 } from '@bitcoinerlab/explorer';
 const { Output, BIP32 } = descriptors.DescriptorsFactory(secp256k1);
-const regtestUtils = new RegtestUtils();
 import {
   DiscoveryFactory,
   DiscoveryInstance,
@@ -36,7 +36,6 @@ import {
   TxoMap
 } from '../../dist';
 type DescriptorIndex = number | 'non-ranged';
-const ESPLORA_CATCHUP_TIME = 5000;
 
 import { fixtures } from '../fixtures/discovery';
 const { wpkhBIP32 } = descriptors.scriptExpressions;
@@ -86,6 +85,7 @@ const parseScriptPubKeys = (range: Record<DescriptorIndex, bigint>) => {
 };
 
 describe('Discovery on regtest', () => {
+  const funded: Array<{ address: string; txId: string }> = [];
   //Let's fund (if needed fund=true) && test (fund=false) the descriptors:
   for (const funding of [true, false]) {
     test(
@@ -98,39 +98,27 @@ describe('Discovery on regtest', () => {
               network,
               ...(indexStr === 'non-ranged' ? {} : { index: Number(indexStr) })
             }).getAddress();
-            let unspents:
-              | Awaited<ReturnType<typeof regtestUtils.unspents>>
-              | undefined;
-            const ATTEMPTS = 10;
-            for (let i = 0; i < ATTEMPTS; i++) {
-              try {
-                unspents = await regtestUtils.unspents(address);
-                break;
-              } catch (err: unknown) {
-                const message = (err as Error).message;
-                console.warn(`Attempt #${i + 1} to access a node: ${message}`);
-                // Wait for 1 sec except after the final attempt
-                if (i < ATTEMPTS - 1)
-                  await new Promise(resolve => setTimeout(resolve, 1000));
-              }
-            }
-            if (!unspents) throw new Error('All attempts failed');
-            expect([0, 1]).toContain(unspents.length);
-            let unspent = unspents[0];
             if (funding) {
-              expect(unspent).toEqual(undefined);
-              unspent = await regtestUtils.faucet(address, Number(value));
+              await waitFor(`fresh address ${address}`, async () => {
+                expect(await regtestUtils.unspents(address)).toHaveLength(0);
+              });
+              const { txId } = await regtestUtils.faucet(
+                address,
+                Number(value)
+              );
+              funded.push({ address, txId });
             }
-            const balance = BigInt((unspent && unspent.value) || 0);
-            expect(balance).toEqual(value);
+            await waitFor(`funding for ${address}`, async () => {
+              const unspents = await regtestUtils.unspents(address);
+              expect(unspents).toHaveLength(1);
+              expect(BigInt(unspents[0]!.value)).toBe(value);
+            });
           }
         }
       },
-      20000
+      60000
     );
   }
-  const esploraPort = process.env['ESPLORA_PORT'] || '3002';
-  const electrumPort = process.env['ELECTRUM_PORT'] || '60401';
   const discoverers: Array<{
     name: string;
     explorer: Explorer;
@@ -140,7 +128,7 @@ describe('Discovery on regtest', () => {
     {
       name: 'Esplora',
       explorer: new EsploraExplorer({
-        url: `http://127.0.0.1:${esploraPort}`,
+        url: esploraURL,
         irrevConfThresh,
         maxTxPerScriptPubKey: 1000
       })
@@ -149,7 +137,7 @@ describe('Discovery on regtest', () => {
       name: 'Electrum',
       explorer: new ElectrumExplorer({
         host: '127.0.0.1',
-        port: parseInt(electrumPort, 10),
+        port: electrumPort,
         protocol: 'tcp',
         network,
         irrevConfThresh,
@@ -157,36 +145,53 @@ describe('Discovery on regtest', () => {
       })
     }
   );
+  afterAll(() => {
+    for (const { explorer } of discoverers) {
+      if (!explorer.isClosed()) explorer.close();
+    }
+  });
   for (const discoverer of discoverers) {
     test(`Connects ${discoverer.name} explorer and sets up Discovery`, async () => {
       await expect(discoverer.explorer.connect()).resolves.not.toThrow();
-      expect(await discoverer.explorer.fetchBlockHeight()).toEqual(
-        await regtestUtils.height()
+      const height = await regtestUtils.height();
+      await waitFor(
+        `${discoverer.name} to reach height ${height}`,
+        async () => {
+          expect(await discoverer.explorer.fetchBlockHeight()).toBe(height);
+        }
       );
       const { Discovery } = DiscoveryFactory(discoverer.explorer, network);
       discoverer.discovery = new Discovery();
-    });
+    }, 35000);
   }
 
   let totalMined = 0;
+  let confirmedHeight = 0;
   for (const blocksToMine of [
     0 /*mempool*/,
     1 /*confirmed*/,
     irrevConfThresh - 2 /*still only confirmed*/,
     1 /*irreversible*/
   ]) {
-    test(
-      `Mine ${blocksToMine} blocks`,
-      async () => {
-        if (blocksToMine !== 0) {
-          await regtestUtils.mine(blocksToMine);
+    test(`Mine ${blocksToMine} blocks`, async () => {
+      if (blocksToMine !== 0) {
+        await regtestUtils.mine(blocksToMine);
+      }
+      totalMined += blocksToMine;
+      const height = await regtestUtils.height();
+      if (totalMined === 1) confirmedHeight = height;
+      await waitFor(`funding indexed after ${totalMined} blocks`, async () => {
+        for (const { explorer } of discoverers) {
+          expect(await explorer.fetchBlockHeight()).toBe(height);
+          for (const { address, txId } of funded) {
+            const history = await explorer.fetchTxHistory({ address });
+            const tx = history.find(tx => tx.txId === txId);
+            expect(tx?.blockHeight).toBe(totalMined ? confirmedHeight : 0);
+            expect(tx?.irreversible).toBe(totalMined >= irrevConfThresh);
+          }
         }
-        totalMined += blocksToMine;
-        //sleep a bit to let esplora catch up
-        await new Promise(resolve => setTimeout(resolve, ESPLORA_CATCHUP_TIME));
-      },
-      ESPLORA_CATCHUP_TIME + 1000
-    );
+      });
+    }, 35000);
     for (const { explorer, name } of discoverers) {
       test(`Block height for ${name} after ${blocksToMine} block`, async () => {
         const blockHeight = await regtestUtils.height();
@@ -512,11 +517,14 @@ describe('Discovery on regtest', () => {
       //Create a new utxo received in nextIndex
       const faucetResult = await regtestUtils.faucet(address, 100000);
       const trackedUtxoString = `${faucetResult.txId}:${faucetResult.vout}`;
-      for (let i = 0; i < 10; i++) {
-        await discovery.fetch({ descriptor });
-        if (discovery.getUtxos({ descriptor }).length > initialNUtxos) break;
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      }
+      await waitFor(
+        `${discoverer.name} to index ${faucetResult.txId}`,
+        async () => {
+          const history = await discoverer.explorer.fetchTxHistory({ address });
+          expect(history.some(tx => tx.txId === faucetResult.txId)).toBe(true);
+        }
+      );
+      await discovery.fetch({ descriptor });
       expect(discovery.getUtxos({ descriptor }).length).toBeGreaterThan(
         initialNUtxos
       );
@@ -599,6 +607,17 @@ describe('Discovery on regtest', () => {
 
       //Now really fetch it and make sure the push routine already set all the
       //relevant data, even if a fetch was not involved:
+      await waitFor(
+        `${discoverer.name} to index spending ${spendingTxId}`,
+        async () => {
+          for (const indexedAddress of [address, finalOutput.getAddress()]) {
+            const history = await discoverer.explorer.fetchTxHistory({
+              address: indexedAddress
+            });
+            expect(history.some(tx => tx.txId === spendingTxId)).toBe(true);
+          }
+        }
+      );
       await discovery.fetch({ descriptor });
 
       // Test getDescriptor for the SPENT trackedUtxoString
@@ -621,7 +640,7 @@ describe('Discovery on regtest', () => {
       expect(discovery.getUtxosAndBalance({ descriptor }).utxos).toBe(
         utxosAfterPush
       );
-    }, 10000);
+    }, 65000);
   }
 
   for (const { explorer, name } of discoverers) {

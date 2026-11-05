@@ -1,4 +1,4 @@
-// Compile Noble's ESM dependencies to CommonJS for Jest, as in descriptors.
+// Compile Noble's ESM dependencies to CommonJS for Jest.
 const ts = require('typescript');
 
 module.exports = {

@@ -1,7 +1,8 @@
 // Copyright (c) 2023 Jose-Luis Landabaso - https://bitcoinerlab.com
 // Distributed under the MIT software license
 
-import { RegtestUtils } from 'regtest-client';
+import { regtestUtils, esploraURL } from '../helpers/regtest';
+import { waitFor } from '../helpers/waitFor';
 import { networks } from 'bitcoinjs-lib';
 import * as secp256k1 from '@bitcoinerlab/secp256k1';
 import * as descriptors from '@bitcoinerlab/descriptors';
@@ -13,7 +14,6 @@ import { compilePolicy, ready } from '@bitcoinerlab/miniscript-policies';
 import { EsploraExplorer } from '@bitcoinerlab/explorer';
 const { Output, BIP32, ECPair } = descriptors.DescriptorsFactory(secp256k1);
 
-const regtestUtils = new RegtestUtils();
 import { DiscoveryFactory } from '../../dist';
 
 export const vaultsTests = () => {
@@ -28,9 +28,11 @@ export const vaultsTests = () => {
     let standardDescriptors: Array<string>;
     let vaultDescriptor: string;
     let vaultAddress: string;
+    const explorer = new EsploraExplorer({ url: esploraURL });
+    afterAll(() => explorer.close());
     beforeAll(async () => {
       await ready;
-      await new Promise(resolve => setTimeout(resolve, 5000));
+      await explorer.connect();
       const POLICY = (older: number) =>
         `or(pk(@panicKey),99@and(pk(@unvaultKey),older(${older})))`;
       const older = olderEncode({ blocks: lockBlocks });
@@ -68,16 +70,20 @@ export const vaultsTests = () => {
           `Fixture value exceeds Number.MAX_SAFE_INTEGER: ${BALANCE.toString()}`
         );
       }
-      await regtestUtils.faucet(vaultAddress, faucetValue);
-      await new Promise(resolve => setTimeout(resolve, 5000));
-    }, 11000);
+      const { txId } = await regtestUtils.faucet(vaultAddress, faucetValue);
+      await waitFor(`vault funding ${txId}`, async () => {
+        const history = await explorer.fetchTxHistory({
+          address: vaultAddress
+        });
+        expect(history.some(tx => tx.txId === txId)).toBe(true);
+        const { balance, unconfirmedBalance } =
+          await explorer.fetchAddress(vaultAddress);
+        expect(balance + unconfirmedBalance).toBe(faucetValue);
+      });
+    }, 35000);
 
-    const esploraPort = process.env['ESPLORA_PORT'] || '3002';
     test('discover descriptors', async () => {
-      const { Discovery } = DiscoveryFactory(
-        new EsploraExplorer({ url: `http://127.0.0.1:${esploraPort}` }),
-        network
-      );
+      const { Discovery } = DiscoveryFactory(explorer, network);
       const unspents = await regtestUtils.unspents(vaultAddress);
       expect(unspents.length).toBe(1);
       const discovery = new Discovery();

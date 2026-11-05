@@ -10,7 +10,13 @@
     "extends": "./node_modules/@bitcoinerlab/configs/eslintConfig"
   },
   "jest": {
-    "preset": "@bitcoinerlab/configs"
+    "preset": "@bitcoinerlab/configs",
+    "transform": {
+      "^.+node_modules/@noble/.+\\.js$": "<rootDir>/jest-esm-transform.cjs"
+    },
+    "transformIgnorePatterns": [
+      "/node_modules/(?!(@bitcoinerlab/secp256k1|@noble)/)"
+    ]
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -45,22 +51,22 @@
     "dist"
   ],
   "dependencies": {
-    "@bitcoinerlab/descriptors": "^3.0.2",
+    "@bitcoinerlab/descriptors": "^3.2.0",
     "@bitcoinerlab/explorer": "^1.0.0",
-    "@bitcoinerlab/secp256k1": "^1.2.0",
-    "@types/memoizee": "^0.4.8",
-    "bitcoinjs-lib": "^7.0.1",
-    "immer": "^9.0.21",
+    "@bitcoinerlab/secp256k1": "^2.0.0",
+    "@types/memoizee": "^0.4.12",
+    "bitcoinjs-lib": "^7.0.5",
+    "immer": "^11.2.9",
     "lodash.clonedeep": "^4.5.0",
-    "memoizee": "^0.4.15",
+    "memoizee": "^0.4.17",
     "shallow-equal": "^3.1.0",
-    "uint8array-tools": "^0.0.9"
+    "uint8array-tools": "^0.0.10"
   },
   "devDependencies": {
     "@bitcoinerlab/configs": "^2.0.0",
     "@bitcoinerlab/miniscript-policies": "^1.1.0",
     "@types/lodash.clonedeep": "^4.5.9",
-    "bip39": "^3.1.0",
+    "bip39": "^3.1.2",
     "regtest-client": "^0.2.1"
   }
 }
